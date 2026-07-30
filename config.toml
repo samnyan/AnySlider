@@ -1,0 +1,15 @@
+enabled = true
+dll = ["AnySlider.dll"]
+
+name = "AnySlider"
+description = "Allows any controllers to use Mega Mix+'s native arcade slider."
+version = "1.0"
+author = "sam_nya"
+
+# Source devices to present to the game as an official HORI controller.
+# ViGEm's default DualShock 4 v1 identity is 054C:05C4.
+vid_pids = ["054C:05C4"]
+
+# 6 = HORI NSW-230 Mega39's (0F0D:00FB)
+# 7 = HORI PS4-161 Future Tone DX (0F0D:013C)
+target_controller_type = 7
