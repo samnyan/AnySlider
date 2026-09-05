@@ -24,6 +24,30 @@
     <ClInclude Include="pch.h">
       <Filter>头文件</Filter>
     </ClInclude>
+    <ClInclude Include="include\mm_io\shared_memory.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="src\anyslider_log.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="src\mm_io_config.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="src\mm_io_hooks.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="src\mm_io_keyboard.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="src\mm_io_shared_memory.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="src\mm_io_window_hooks.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="src\vid_pid_remap.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="dllmain.cpp">
@@ -33,6 +57,24 @@
       <Filter>源文件</Filter>
     </ClCompile>
     <ClCompile Include="mod.cpp">
+      <Filter>源文件</Filter>
+    </ClCompile>
+    <ClCompile Include="src\mm_io_config.cpp">
+      <Filter>源文件</Filter>
+    </ClCompile>
+    <ClCompile Include="src\mm_io_hooks.cpp">
+      <Filter>源文件</Filter>
+    </ClCompile>
+    <ClCompile Include="src\mm_io_keyboard.cpp">
+      <Filter>源文件</Filter>
+    </ClCompile>
+    <ClCompile Include="src\mm_io_shared_memory.cpp">
+      <Filter>源文件</Filter>
+    </ClCompile>
+    <ClCompile Include="src\mm_io_window_hooks.cpp">
+      <Filter>源文件</Filter>
+    </ClCompile>
+    <ClCompile Include="src\vid_pid_remap.cpp">
       <Filter>源文件</Filter>
     </ClCompile>
   </ItemGroup>

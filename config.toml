@@ -13,3 +13,83 @@ vid_pids = ["054C:05C4"]
 # 6 = HORI NSW-230 Mega39's (0F0D:00FB)
 # 7 = HORI PS4-161 Future Tone DX (0F0D:013C)
 target_controller_type = 7
+
+# Native Mega Mix+ input backend. It does not require a virtual HORI device.
+io_hook = false
+io_shared_memory = "Local\\MMIO_SHARED_BUFFER"
+io_input_lease_ms = 500
+io_takeover = false
+
+# Built-in test frontend. It is sampled by the game input hook only when enabled.
+io_keyboard_frontend = false
+io_keyboard_slider_cells_per_second = 18.0
+
+# Each binding accepts a comma-delimited string or a string array. [] disables it.
+# Names follow PD-Loader conventions: W, F1, Enter, Left, LeftShift, NumPad0,
+# Space, MouseLeft, or a literal virtual-key code such as 0x41.
+io_key_test = ["F1"]
+io_key_service = ["F2"]
+io_key_pause = ["Escape"]
+io_key_start = ["Enter"]
+io_key_dpad_up = ["Up"]
+io_key_dpad_down = ["Down"]
+io_key_dpad_left = ["Left"]
+io_key_dpad_right = ["Right"]
+io_key_triangle = ["W"]
+io_key_square = ["A"]
+io_key_cross = ["S"]
+io_key_circle = ["D"]
+io_key_l1 = ["Z"]
+io_key_r1 = ["X"]
+io_key_l2 = []
+io_key_r2 = []
+io_key_select = []
+io_key_l3 = []
+io_key_r3 = []
+
+# These move two independent slider contacts across the native 32 cells.
+io_key_slider_1_left = ["Q"]
+io_key_slider_1_right = ["E"]
+io_key_slider_2_left = ["U"]
+io_key_slider_2_right = ["O"]
+
+# Optional direct slider-cell bindings. Cell 01 is the leftmost native sensor.
+io_key_slider_01 = []
+io_key_slider_02 = []
+io_key_slider_03 = []
+io_key_slider_04 = []
+io_key_slider_05 = []
+io_key_slider_06 = []
+io_key_slider_07 = []
+io_key_slider_08 = []
+io_key_slider_09 = []
+io_key_slider_10 = []
+io_key_slider_11 = []
+io_key_slider_12 = []
+io_key_slider_13 = []
+io_key_slider_14 = []
+io_key_slider_15 = []
+io_key_slider_16 = []
+io_key_slider_17 = []
+io_key_slider_18 = []
+io_key_slider_19 = []
+io_key_slider_20 = []
+io_key_slider_21 = []
+io_key_slider_22 = []
+io_key_slider_23 = []
+io_key_slider_24 = []
+io_key_slider_25 = []
+io_key_slider_26 = []
+io_key_slider_27 = []
+io_key_slider_28 = []
+io_key_slider_29 = []
+io_key_slider_30 = []
+io_key_slider_31 = []
+io_key_slider_32 = []
+
+# Keep the game active beneath an overlay and block its physical keyboard path.
+io_bypass_focus_loss = false
+io_block_keyboard_input = false
+
+# While the MMIO backend is active, use the game's controller-prompt presentation.
+io_force_gamepad_ui = false

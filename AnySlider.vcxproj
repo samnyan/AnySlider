@@ -70,6 +70,11 @@
     <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
   </ImportGroup>
   <PropertyGroup Label="UserMacros" />
+  <ItemDefinitionGroup>
+    <ClCompile>
+      <AdditionalIncludeDirectories>$(ProjectDir)include;$(ProjectDir);%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+    </ClCompile>
+  </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
     <ClCompile>
       <WarningLevel>Level3</WarningLevel>
@@ -165,10 +170,24 @@
   <ItemGroup>
     <ClInclude Include="Dependencies\Signature.h" />
     <ClInclude Include="pch.h" />
+    <ClInclude Include="include\mm_io\shared_memory.h" />
+    <ClInclude Include="src\anyslider_log.h" />
+    <ClInclude Include="src\mm_io_config.h" />
+    <ClInclude Include="src\mm_io_hooks.h" />
+    <ClInclude Include="src\mm_io_keyboard.h" />
+    <ClInclude Include="src\mm_io_shared_memory.h" />
+    <ClInclude Include="src\mm_io_window_hooks.h" />
+    <ClInclude Include="src\vid_pid_remap.h" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="dllmain.cpp" />
     <ClCompile Include="mod.cpp" />
+    <ClCompile Include="src\mm_io_config.cpp" />
+    <ClCompile Include="src\mm_io_hooks.cpp" />
+    <ClCompile Include="src\mm_io_keyboard.cpp" />
+    <ClCompile Include="src\mm_io_shared_memory.cpp" />
+    <ClCompile Include="src\mm_io_window_hooks.cpp" />
+    <ClCompile Include="src\vid_pid_remap.cpp" />
     <ClCompile Include="pch.cpp">
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Create</PrecompiledHeader>
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">Create</PrecompiledHeader>
