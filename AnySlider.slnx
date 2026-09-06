@@ -1,7 +1,6 @@
 <Solution>
   <Configurations>
     <Platform Name="x64" />
-    <Platform Name="x86" />
   </Configurations>
-  <Project Path="AnySlider.vcxproj" />
+  <Project Path="AnySlider.vcxproj" Id="cb326e6d-0521-4453-b5e7-d92ba62c43a4" />
 </Solution>
