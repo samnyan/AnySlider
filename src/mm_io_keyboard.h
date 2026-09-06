@@ -60,6 +60,7 @@ struct MmIoMouseSliderConfig
     MmIoMouseSliderBinding slider_1{ MmIoMouseAxis::X, false, 1.0f };
     MmIoMouseSliderBinding slider_2{ MmIoMouseAxis::Y, false, 1.0f };
     float counts_per_cycle = 256.0f;
+    uint32_t touch_hold_ms = 0;
     std::wstring device_filter;
 };
 
@@ -89,8 +90,12 @@ private:
     struct SliderContact
     {
         float position = 0.0f;
+        // Keyboard slider state.
         bool left_down = false;
         bool right_down = false;
+        // Mouse-slider simulated touch state.
+        bool mouse_active = false;
+        std::chrono::steady_clock::time_point last_mouse_move_time{};
     };
 
     bool enabled_ = false;
@@ -117,6 +122,12 @@ private:
         int64_t rawDelta,
         const MmIoMouseSliderBinding& binding,
         float startPosition,
-        float endPosition);
+        float endPosition,
+        std::chrono::steady_clock::time_point now);
+
+    void UpdateMouseContactRelease(
+        SliderContact& contact,
+        bool movedThisPoll,
+        std::chrono::steady_clock::time_point now);
 };
 }

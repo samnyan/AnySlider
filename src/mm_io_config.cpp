@@ -221,6 +221,13 @@ void LoadMouseSliderConfig(const toml::table& document, MmIoConfig& config)
         Log("Invalid io_mouse_slider_counts_per_cycle; using 256.");
         mouse.counts_per_cycle = 256.0f;
     }
+    constexpr uint32_t kMaxMouseSliderTouchHoldMs = 5000;
+    mouse.touch_hold_ms = document["io_mouse_slider_touch_hold_ms"].value_or<uint32_t>(0);
+    if (mouse.touch_hold_ms > kMaxMouseSliderTouchHoldMs)
+    {
+        Log("Invalid io_mouse_slider_touch_hold_ms=%u; using 0.", mouse.touch_hold_ms);
+        mouse.touch_hold_ms = 0;
+    }
     const std::string device = document["io_mouse_slider_device"].value_or(std::string{});
     mouse.device_filter.assign(device.begin(), device.end());
     if (mouse.enabled && !config.keyboard_mouse_frontend)

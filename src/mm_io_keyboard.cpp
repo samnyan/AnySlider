@@ -217,8 +217,10 @@ void MmIoKeyboardMouseFrontend::Initialize(
     last_poll_time_ = {};
     has_last_poll_time_ = false;
     ResetMmIoRawMouseInput();
-    left_contact_ = { 7.5f, false, false };
-    right_contact_ = { 23.5f, false, false };
+    left_contact_ = {};
+    left_contact_.position = 7.5f;
+    right_contact_ = {};
+    right_contact_.position = 23.5f;
 }
 
 bool MmIoKeyboardMouseFrontend::IsEnabled() const
@@ -269,18 +271,44 @@ void MmIoKeyboardMouseFrontend::UpdateMouseContact(
     int64_t rawDelta,
     const MmIoMouseSliderBinding& binding,
     float startPosition,
-    float endPosition)
+    float endPosition,
+    std::chrono::steady_clock::time_point now)
 {
     if (!mouse_slider_enabled_ || rawDelta == 0)
     {
         return;
     }
     const float range = endPosition - startPosition;
+    if (!contact.mouse_active)
+    {
+        contact.position = startPosition + (range - 1.0f) * 0.5f;
+        DebugLog("Mouse slider activated at %.3f", contact.position);
+    }
+    contact.mouse_active = true;
+    contact.last_mouse_move_time = now;
     const float direction = binding.invert ? -1.0f : 1.0f;
     contact.position += static_cast<float>(rawDelta) *
         (range / mouse_slider_.counts_per_cycle) *
         binding.sensitivity * direction;
     contact.position = WrapContactPosition(contact.position, startPosition, range);
+}
+
+void MmIoKeyboardMouseFrontend::UpdateMouseContactRelease(
+    SliderContact& contact,
+    bool movedThisPoll,
+    std::chrono::steady_clock::time_point now)
+{
+    if (!mouse_slider_enabled_ || !contact.mouse_active || movedThisPoll)
+    {
+        return;
+    }
+    if (mouse_slider_.touch_hold_ms == 0 ||
+        std::chrono::duration_cast<std::chrono::milliseconds>(
+            now - contact.last_mouse_move_time).count() >= mouse_slider_.touch_hold_ms)
+    {
+        contact.mouse_active = false;
+        DebugLog("Mouse slider released");
+    }
 }
 
 mmio::InputSnapshot MmIoKeyboardMouseFrontend::Poll()
@@ -321,23 +349,14 @@ mmio::InputSnapshot MmIoKeyboardMouseFrontend::Poll()
         DebugLog("Mouse slider delta: x=%lld y=%lld wheel=%lld",
             mouseDelta.x, mouseDelta.y, mouseDelta.wheel);
     }
+    const int64_t slider1Delta = SelectMouseAxis(mouseDelta, mouse_slider_.slider_1.axis);
+    const int64_t slider2Delta = SelectMouseAxis(mouseDelta, mouse_slider_.slider_2.axis);
     UpdateMouseContact(
-        left_contact_,
-        SelectMouseAxis(mouseDelta, mouse_slider_.slider_1.axis),
-        mouse_slider_.slider_1,
-        0.0f,
-        16.0f);
+        left_contact_, slider1Delta, mouse_slider_.slider_1, 0.0f, 16.0f, now);
     UpdateMouseContact(
-        right_contact_,
-        SelectMouseAxis(mouseDelta, mouse_slider_.slider_2.axis),
-        mouse_slider_.slider_2,
-        16.0f,
-        32.0f);
-    if (mouseDelta.x != 0 || mouseDelta.y != 0 || mouseDelta.wheel != 0)
-    {
-        DebugLog("Mouse slider positions: left=%.3f right=%.3f",
-            left_contact_.position, right_contact_.position);
-    }
+        right_contact_, slider2Delta, mouse_slider_.slider_2, 16.0f, 32.0f, now);
+    UpdateMouseContactRelease(left_contact_, slider1Delta != 0, now);
+    UpdateMouseContactRelease(right_contact_, slider2Delta != 0, now);
     struct Binding
     {
         const MmIoKeyBinding* keys;
@@ -375,10 +394,10 @@ mmio::InputSnapshot MmIoKeyboardMouseFrontend::Poll()
     }
 
     const bool leftContactActive =
-        mouse_slider_enabled_ ||
+        left_contact_.mouse_active ||
         IsDown(bindings_.slider_1_left) || IsDown(bindings_.slider_1_right);
     const bool rightContactActive =
-        mouse_slider_enabled_ ||
+        right_contact_.mouse_active ||
         IsDown(bindings_.slider_2_left) || IsDown(bindings_.slider_2_right);
     if (leftContactActive)
     {

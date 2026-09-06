@@ -41,6 +41,10 @@ io_mouse_slider_2_invert = false
 io_mouse_slider_counts_per_cycle = 256.0
 io_mouse_slider_1_sensitivity = 1.0
 io_mouse_slider_2_sensitivity = 1.0
+# Keep simulated slider touch alive after movement stops.
+# 0 releases the touch on the first frontend poll without movement.
+# The next movement starts a new swipe from the slider center.
+io_mouse_slider_touch_hold_ms = 0
 # Optional case-insensitive substring filter for the Raw Input device path.
 io_mouse_slider_device = ""
 
