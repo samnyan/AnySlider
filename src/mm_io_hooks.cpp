@@ -46,13 +46,14 @@ bool steamInputHookInstalled = false;
 
 struct AcceptedInputFrame
 {
-    mmio::InputSnapshot snapshot{};
     uint64_t gamebtn_tapped[mmio::kGameButtonWordCount]{};
     uint64_t gamebtn_released[mmio::kGameButtonWordCount]{};
     uint64_t gamebtn_down[mmio::kGameButtonWordCount]{};
+    uint8_t touch_cells[mmio::kTouchCellCount]{};
+    uint32_t gamepad_slide = 0;
+    mmio::Mode slider_mode = mmio::Mode::None;
     bool active = false;
     bool takeover = false;
-    bool arcade_mode = false;
 };
 
 thread_local AcceptedInputFrame acceptedInputFrame;
@@ -83,6 +84,40 @@ struct ButtonEdgeTracker
 };
 
 ButtonEdgeTracker keyboardButtonEdges;
+ButtonEdgeTracker mergedProviderEdges;
+
+void MergeGameButtons(
+    uint64_t (&destination)[mmio::kGameButtonWordCount],
+    const uint64_t (&source)[mmio::kGameButtonWordCount])
+{
+    for (uint32_t word = 0; word < mmio::kGameButtonWordCount; ++word)
+    {
+        destination[word] |= source[word];
+    }
+}
+
+bool HasActiveTouchCell(const uint8_t (&touchCells)[mmio::kTouchCellCount])
+{
+    for (const uint8_t cell : touchCells)
+    {
+        if (cell != 0)
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
+void MergeTouchCells(
+    uint8_t (&destination)[mmio::kTouchCellCount],
+    const uint8_t (&source)[mmio::kTouchCellCount])
+{
+    for (uint32_t cell = 0; cell < mmio::kTouchCellCount; ++cell)
+    {
+        destination[cell] = static_cast<uint8_t>(
+            destination[cell] != 0 || source[cell] != 0);
+    }
+}
 
 void* FindSignature(const char* bytes, const char* mask)
 {
@@ -135,38 +170,102 @@ void RefreshAcceptedInputFrame()
     const bool keyboardActive = keyboardFrontend.IsEnabled();
 
     acceptedInputFrame = {};
+    uint64_t providerHeld[mmio::kGameButtonWordCount]{};
     if (externalFrameAvailable)
     {
-        acceptedInputFrame.snapshot = externalFrame.snapshot;
-        std::memcpy(acceptedInputFrame.gamebtn_tapped, externalFrame.gamebtn_tapped, sizeof(externalFrame.gamebtn_tapped));
-        std::memcpy(acceptedInputFrame.gamebtn_released, externalFrame.gamebtn_released, sizeof(externalFrame.gamebtn_released));
-        std::memcpy(acceptedInputFrame.gamebtn_down, externalFrame.gamebtn_down, sizeof(externalFrame.gamebtn_down));
+        MergeGameButtons(
+            acceptedInputFrame.gamebtn_tapped,
+            externalFrame.gamebtn_tapped);
+        MergeGameButtons(
+            acceptedInputFrame.gamebtn_released,
+            externalFrame.gamebtn_released);
+        MergeGameButtons(providerHeld, externalFrame.gamebtn_down);
         acceptedInputFrame.active = true;
-        keyboardButtonEdges.Reset();
     }
-    else if (keyboardActive)
+    if (externalActive)
     {
-        acceptedInputFrame.snapshot = keyboardSnapshot;
-        acceptedInputFrame.active = true;
+        acceptedInputFrame.slider_mode = static_cast<mmio::Mode>(
+            externalFrame.snapshot.mode);
+        if (acceptedInputFrame.slider_mode == mmio::Mode::ArcadeSlider)
+        {
+            MergeTouchCells(
+                acceptedInputFrame.touch_cells,
+                externalFrame.snapshot.touch_cells);
+        }
+        else
+        {
+            acceptedInputFrame.gamepad_slide =
+                externalFrame.snapshot.gamepad_slide;
+        }
+    }
+
+    if (keyboardActive)
+    {
+        uint64_t keyboardTapped[mmio::kGameButtonWordCount]{};
+        uint64_t keyboardReleased[mmio::kGameButtonWordCount]{};
+        uint64_t keyboardHeld[mmio::kGameButtonWordCount]{};
         keyboardButtonEdges.Apply(
             keyboardSnapshot.gamebtn,
-            acceptedInputFrame.gamebtn_tapped,
-            acceptedInputFrame.gamebtn_released,
-            acceptedInputFrame.gamebtn_down);
+            keyboardTapped,
+            keyboardReleased,
+            keyboardHeld);
+        MergeGameButtons(acceptedInputFrame.gamebtn_tapped, keyboardTapped);
+        MergeGameButtons(acceptedInputFrame.gamebtn_released, keyboardReleased);
+        MergeGameButtons(providerHeld, keyboardHeld);
+        if (!externalActive)
+        {
+            acceptedInputFrame.slider_mode = mmio::Mode::ArcadeSlider;
+        }
+        acceptedInputFrame.active = true;
     }
     else
     {
         keyboardButtonEdges.Reset();
     }
 
-    acceptedInputFrame.takeover = externalActive && mmIoConfig.takeover;
-    if (!externalFrameAvailable && keyboardActive)
+    uint64_t providerTapped[mmio::kGameButtonWordCount]{};
+    uint64_t providerReleased[mmio::kGameButtonWordCount]{};
+    uint64_t mergedHeld[mmio::kGameButtonWordCount]{};
+    mergedProviderEdges.Apply(
+        providerHeld,
+        providerTapped,
+        providerReleased,
+        mergedHeld);
+    for (uint32_t word = 0; word < mmio::kGameButtonWordCount; ++word)
     {
-        acceptedInputFrame.takeover = mmIoConfig.takeover;
+        // Source-local taps remain visible so another provider can retrigger a
+        // held action. Releases require every provider to be up.
+        acceptedInputFrame.gamebtn_tapped[word] |= providerTapped[word];
+        acceptedInputFrame.gamebtn_released[word] |= providerReleased[word];
+        acceptedInputFrame.gamebtn_released[word] &= ~providerHeld[word];
+        acceptedInputFrame.gamebtn_down[word] = mergedHeld[word];
     }
-    acceptedInputFrame.arcade_mode = acceptedInputFrame.active &&
-        acceptedInputFrame.snapshot.mode == static_cast<uint32_t>(mmio::Mode::ArcadeSlider);
-    arcadeSliderActive.store(acceptedInputFrame.arcade_mode, std::memory_order_relaxed);
+
+    if (keyboardActive)
+    {
+        const bool keyboardSliderActive = HasActiveTouchCell(
+            keyboardSnapshot.touch_cells);
+        if (keyboardSliderActive &&
+            acceptedInputFrame.slider_mode == mmio::Mode::GamepadDualStick)
+        {
+            acceptedInputFrame.slider_mode = mmio::Mode::ArcadeSlider;
+            acceptedInputFrame.gamepad_slide = 0;
+        }
+
+        if (acceptedInputFrame.slider_mode == mmio::Mode::ArcadeSlider)
+        {
+            MergeTouchCells(
+                acceptedInputFrame.touch_cells,
+                keyboardSnapshot.touch_cells);
+        }
+    }
+
+    acceptedInputFrame.takeover =
+        (externalActive || keyboardActive) && mmIoConfig.takeover;
+    arcadeSliderActive.store(
+        acceptedInputFrame.active &&
+            acceptedInputFrame.slider_mode == mmio::Mode::ArcadeSlider,
+        std::memory_order_relaxed);
 
     const bool previousTakeover = takeoverActive.exchange(
         acceptedInputFrame.takeover,
@@ -201,14 +300,14 @@ void InjectAcceptedInput(void* state)
         releasedButtons[word] |= acceptedInputFrame.gamebtn_released[word];
         heldButtons[word] |= acceptedInputFrame.gamebtn_down[word];
     }
-    if (acceptedInputFrame.arcade_mode)
+    if (acceptedInputFrame.slider_mode == mmio::Mode::ArcadeSlider)
     {
         analog[SliderCellsAnalogIndex] |= MapTouchCells(
-            acceptedInputFrame.snapshot.touch_cells);
+            acceptedInputFrame.touch_cells);
     }
-    else
+    else if (acceptedInputFrame.slider_mode == mmio::Mode::GamepadDualStick)
     {
-        heldButtons[0] |= MapGamepadSlide(acceptedInputFrame.snapshot.gamepad_slide);
+        heldButtons[0] |= MapGamepadSlide(acceptedInputFrame.gamepad_slide);
     }
 }
 

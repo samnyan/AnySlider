@@ -46,15 +46,16 @@ public:
 
 private:
     void ResetButtonState();
+    void ResetSourceState();
 
     MmIoSharedMemory shared_memory_;
     int64_t last_event_sequence_ = 0;
     uint64_t gamebtn_down_[mmio::kGameButtonWordCount]{};
     uint32_t source_id_ = 0;
-    uint32_t mode_ = 0;
     uint64_t producer_started_us_ = 0;
     bool source_was_active_ = false;
     bool overflow_logged_ = false;
+    bool pending_source_resync_ = false;
 };
 
 class MmIoPublisher

@@ -173,9 +173,10 @@ struct InputSnapshot
 // One ordered gamebtn transition. A producer appends exactly one item whenever
 // any gamebtn bit changes; it may include several changed bits in that item.
 //
-// The hook consumes at most one matching event per game input frame. Therefore
-// a producer may publish press then release between game frames without losing
-// the tap: the game receives a pressed/down frame then a released frame.
+// The hook drains and merges all matching events published before one game input
+// check. A single event may contain several changed bits; the ring preserves
+// press/release transitions that occur between checks without serializing them
+// across multiple game frames.
 //
 // Offset  Size  Field
 // 0       8     sequence

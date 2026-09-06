@@ -181,12 +181,17 @@ void MmIoConsumer::Shutdown()
 void MmIoConsumer::ResetButtonState()
 {
     last_event_sequence_ = 0;
+    ResetSourceState();
+}
+
+void MmIoConsumer::ResetSourceState()
+{
     ClearGameButtons(gamebtn_down_);
     source_id_ = 0;
-    mode_ = 0;
     producer_started_us_ = 0;
     source_was_active_ = false;
     overflow_logged_ = false;
+    pending_source_resync_ = false;
 }
 
 bool MmIoConsumer::ReadFrame(InputFrame& frame, uint64_t maxLeaseMs)
@@ -201,6 +206,7 @@ bool MmIoConsumer::ReadFrame(InputFrame& frame, uint64_t maxLeaseMs)
     auto& hook = buffer->hook;
     hook.heartbeat_us = MmIoNowMicroseconds();
     bool sourceExpired = false;
+    int64_t expiredEventSequence = last_event_sequence_;
 
     for (int attempt = 0; attempt != 3; ++attempt)
     {
@@ -212,6 +218,8 @@ bool MmIoConsumer::ReadFrame(InputFrame& frame, uint64_t maxLeaseMs)
 
         mmio::InputSnapshot candidate{};
         std::memcpy(&candidate, &buffer->input, sizeof(candidate));
+        const int64_t publishedEventSequence = ReadSequence(
+            &buffer->button_event_sequence);
         MemoryBarrier();
         const int64_t secondSequence = ReadSequence(&buffer->input_sequence);
         if (firstSequence != secondSequence || (secondSequence & 1))
@@ -226,6 +234,7 @@ bool MmIoConsumer::ReadFrame(InputFrame& frame, uint64_t maxLeaseMs)
             nowUs - candidate.timestamp_us > candidate.lease_ms * 1000)
         {
             sourceExpired = true;
+            expiredEventSequence = publishedEventSequence;
             break;
         }
 
@@ -234,20 +243,20 @@ bool MmIoConsumer::ReadFrame(InputFrame& frame, uint64_t maxLeaseMs)
         if (candidate.mode == static_cast<uint32_t>(mmio::Mode::None))
         {
             sourceExpired = true;
+            expiredEventSequence = publishedEventSequence;
             break;
         }
 
         frame.source_active = true;
         const uint64_t producerStartedUs = buffer->producer.started_us;
         const bool sourceChanged = !source_was_active_ ||
-            source_id_ != candidate.source_id || mode_ != candidate.mode ||
+            source_id_ != candidate.source_id ||
             producer_started_us_ != producerStartedUs;
         if (sourceChanged)
         {
             CopyGameButtons(frame.gamebtn_released, gamebtn_down_);
             ClearGameButtons(gamebtn_down_);
             source_id_ = candidate.source_id;
-            mode_ = candidate.mode;
             producer_started_us_ = producerStartedUs;
             source_was_active_ = true;
             overflow_logged_ = false;
@@ -255,15 +264,20 @@ bool MmIoConsumer::ReadFrame(InputFrame& frame, uint64_t maxLeaseMs)
 
         if (HasAnyGameButton(frame.gamebtn_released))
         {
+            pending_source_resync_ = true;
             CopyGameButtons(frame.gamebtn_down, gamebtn_down_);
             return true;
         }
 
-        const int64_t publishedEventSequence = ReadSequence(&buffer->button_event_sequence);
         if (publishedEventSequence < last_event_sequence_)
         {
             last_event_sequence_ = publishedEventSequence;
             CopyGameButtons(gamebtn_down_, candidate.gamebtn);
+            if (pending_source_resync_ || (sourceChanged && HasAnyGameButton(candidate.gamebtn)))
+            {
+                CopyGameButtons(frame.gamebtn_tapped, candidate.gamebtn);
+            }
+            pending_source_resync_ = false;
         }
         else if (publishedEventSequence - last_event_sequence_ > mmio::kButtonEventCapacity)
         {
@@ -275,10 +289,18 @@ bool MmIoConsumer::ReadFrame(InputFrame& frame, uint64_t maxLeaseMs)
             last_event_sequence_ = publishedEventSequence;
             CopyGameButtons(gamebtn_down_, candidate.gamebtn);
             InterlockedExchange64(&hook.event_sequence, last_event_sequence_);
+            if (pending_source_resync_ || (sourceChanged && HasAnyGameButton(candidate.gamebtn)))
+            {
+                CopyGameButtons(frame.gamebtn_tapped, candidate.gamebtn);
+            }
+            pending_source_resync_ = false;
         }
         else
         {
-            bool consumedMatchingEvent = false;
+            // Drain every event published before this input check. The queue
+            // preserves sub-frame edges, but must not serialize independent
+            // buttons across multiple game input checks.
+            bool consumedAllPublishedEvents = true;
             while (last_event_sequence_ < publishedEventSequence)
             {
                 const int64_t expectedSequence = last_event_sequence_ + 1;
@@ -289,6 +311,7 @@ bool MmIoConsumer::ReadFrame(InputFrame& frame, uint64_t maxLeaseMs)
                 MemoryBarrier();
                 if (ReadSequence(&slot.sequence) != expectedSequence)
                 {
+                    consumedAllPublishedEvents = false;
                     break;
                 }
 
@@ -301,21 +324,37 @@ bool MmIoConsumer::ReadFrame(InputFrame& frame, uint64_t maxLeaseMs)
                     continue;
                 }
 
-                CopyGameButtons(frame.gamebtn_tapped, event.gamebtn_pressed);
-                CopyGameButtons(frame.gamebtn_released, event.gamebtn_released);
+                // Both one event containing many bits and many events between
+                // checks are delivered in this one frame.
+                for (uint32_t word = 0; word < mmio::kGameButtonWordCount; ++word)
+                {
+                    frame.gamebtn_tapped[word] |= event.gamebtn_pressed[word];
+                    frame.gamebtn_released[word] |= event.gamebtn_released[word];
+                }
                 ApplyGameButtonEvent(
                     gamebtn_down_,
                     event.gamebtn_pressed,
                     event.gamebtn_released);
-                consumedMatchingEvent = true;
-                break;
             }
 
-            if (sourceChanged && !consumedMatchingEvent &&
-                HasAnyGameButton(candidate.gamebtn))
+            // The snapshot is authoritative for the current held level. The
+            // event stream remains responsible for preserving transient edges.
+            if (consumedAllPublishedEvents)
             {
-                CopyGameButtons(frame.gamebtn_tapped, candidate.gamebtn);
                 CopyGameButtons(gamebtn_down_, candidate.gamebtn);
+            }
+
+            const bool resyncSnapshot = pending_source_resync_ ||
+                (sourceChanged && !HasAnyGameButton(frame.gamebtn_tapped) &&
+                    HasAnyGameButton(candidate.gamebtn));
+            if (resyncSnapshot)
+            {
+                for (uint32_t word = 0; word < mmio::kGameButtonWordCount; ++word)
+                {
+                    frame.gamebtn_tapped[word] |= candidate.gamebtn[word];
+                    gamebtn_down_[word] |= candidate.gamebtn[word];
+                }
+                pending_source_resync_ = false;
             }
         }
 
@@ -323,18 +362,23 @@ bool MmIoConsumer::ReadFrame(InputFrame& frame, uint64_t maxLeaseMs)
         return true;
     }
 
-    if (!sourceExpired || !HasAnyGameButton(gamebtn_down_))
+    if (!sourceExpired)
     {
-        if (sourceExpired)
-        {
-            ResetButtonState();
-        }
         return false;
     }
 
-    CopyGameButtons(frame.gamebtn_released, gamebtn_down_);
-    ResetButtonState();
-    return true;
+    const bool hadHeldButtons = HasAnyGameButton(gamebtn_down_);
+    if (hadHeldButtons)
+    {
+        CopyGameButtons(frame.gamebtn_released, gamebtn_down_);
+    }
+
+    // Events already published by an expired source belong to the discarded
+    // lease interval and must not be replayed if the same session resumes.
+    last_event_sequence_ = expiredEventSequence;
+    InterlockedExchange64(&hook.event_sequence, last_event_sequence_);
+    ResetSourceState();
+    return hadHeldButtons;
 }
 
 bool MmIoPublisher::Initialize(std::wstring_view name, uint32_t capabilities)
