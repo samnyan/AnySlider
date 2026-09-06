@@ -175,6 +175,60 @@ void LoadKeyboardBinding(const toml::table& document, const char* configKey, MmI
     binding = std::move(parsed);
 }
 
+bool TryParseMouseAxis(const std::string& text, MmIoMouseAxis& axis)
+{
+    const std::string normalized = ToUpper(Trim(text));
+    if (normalized == "X") { axis = MmIoMouseAxis::X; return true; }
+    if (normalized == "Y") { axis = MmIoMouseAxis::Y; return true; }
+    if (normalized == "WHEEL") { axis = MmIoMouseAxis::Wheel; return true; }
+    return false;
+}
+
+float LoadMouseSensitivity(const toml::table& document, const char* key)
+{
+    const float value = document[key].value_or(1.0f);
+    if (value < 0.01f || value > 100.0f)
+    {
+        Log("Invalid %s; using 1.0.", key);
+        return 1.0f;
+    }
+    return value;
+}
+
+void LoadMouseSliderConfig(const toml::table& document, MmIoConfig& config)
+{
+    auto& mouse = config.mouse_slider;
+    mouse.enabled = document["io_use_mouse_as_slider"].value_or(false);
+    const std::string axis1 = document["io_mouse_slider_1_axis"].value_or(std::string("x"));
+    const std::string axis2 = document["io_mouse_slider_2_axis"].value_or(std::string("y"));
+    if (!TryParseMouseAxis(axis1, mouse.slider_1.axis))
+    {
+        Log("Invalid io_mouse_slider_1_axis=%s; using x.", axis1.c_str());
+        mouse.slider_1.axis = MmIoMouseAxis::X;
+    }
+    if (!TryParseMouseAxis(axis2, mouse.slider_2.axis))
+    {
+        Log("Invalid io_mouse_slider_2_axis=%s; using y.", axis2.c_str());
+        mouse.slider_2.axis = MmIoMouseAxis::Y;
+    }
+    mouse.slider_1.invert = document["io_mouse_slider_1_invert"].value_or(false);
+    mouse.slider_2.invert = document["io_mouse_slider_2_invert"].value_or(false);
+    mouse.slider_1.sensitivity = LoadMouseSensitivity(document, "io_mouse_slider_1_sensitivity");
+    mouse.slider_2.sensitivity = LoadMouseSensitivity(document, "io_mouse_slider_2_sensitivity");
+    mouse.counts_per_cycle = document["io_mouse_slider_counts_per_cycle"].value_or(256.0f);
+    if (mouse.counts_per_cycle < 1.0f || mouse.counts_per_cycle > 100000.0f)
+    {
+        Log("Invalid io_mouse_slider_counts_per_cycle; using 256.");
+        mouse.counts_per_cycle = 256.0f;
+    }
+    const std::string device = document["io_mouse_slider_device"].value_or(std::string{});
+    mouse.device_filter.assign(device.begin(), device.end());
+    if (mouse.enabled && !config.keyboard_mouse_frontend)
+    {
+        Log("Mouse slider is enabled but io_keyboard_mouse_frontend is disabled; ignoring mouse slider input.");
+    }
+}
+
 void LoadKeyboardBindings(const toml::table& document, MmIoKeyboardBindings& bindings)
 {
     LoadKeyboardBinding(document, "io_key_test", bindings.test);
@@ -236,6 +290,7 @@ bool LoadMmIoConfig(MmIoConfig& config)
         }
         config.keyboard_bindings = DefaultMmIoKeyboardBindings();
         LoadKeyboardBindings(document, config.keyboard_bindings);
+        LoadMouseSliderConfig(document, config);
 
         const std::string mappingName = document["io_shared_memory"]
             .value_or(std::string("Local\\MMIO_SHARED_BUFFER"));

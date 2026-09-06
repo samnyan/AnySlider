@@ -17,6 +17,7 @@ struct MmIoConfig
     uint64_t max_input_lease_ms = 500;
     float keyboard_slider_cells_per_second = 18.0f;
     MmIoKeyboardBindings keyboard_bindings;
+    MmIoMouseSliderConfig mouse_slider;
     std::wstring shared_memory_name = L"Local\\MMIO_SHARED_BUFFER";
 };
 

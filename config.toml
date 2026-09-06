@@ -29,6 +29,19 @@ io_block_keyboard_mouse_input = false
 # Emulate slider speed.
 io_keyboard_slider_cells_per_second = 32.0
 
+# Use relative Raw Input mouse movement as two arcade sliders.
+# Requires io_keyboard_mouse_frontend = true.
+io_use_mouse_as_slider = false
+io_mouse_slider_1_axis = "x"
+io_mouse_slider_2_axis = "y"
+io_mouse_slider_1_invert = false
+io_mouse_slider_2_invert = false
+io_mouse_slider_counts_per_cycle = 256.0
+io_mouse_slider_1_sensitivity = 1.0
+io_mouse_slider_2_sensitivity = 1.0
+# Optional case-insensitive substring filter for the Raw Input device path.
+io_mouse_slider_device = ""
+
 # Keep the game active even when not at foreground.
 io_keep_game_active_unfocused = false
 

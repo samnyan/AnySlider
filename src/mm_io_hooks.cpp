@@ -454,7 +454,8 @@ bool InitializeMmIoHooks(const MmIoConfig& config)
     keyboardFrontend.Initialize(
         config.keyboard_mouse_frontend,
         config.keyboard_slider_cells_per_second,
-        config.keyboard_bindings);
+        config.keyboard_bindings,
+        config.mouse_slider);
     if (!mmIoConsumer.Initialize(
             config.shared_memory_name,
             mmio::SupportsArcadeSlider | mmio::SupportsGamepadDualStick))
@@ -468,11 +469,12 @@ bool InitializeMmIoHooks(const MmIoConfig& config)
         return false;
     }
 
-    Log("MMIO backend ready: mapping=%ls lease=%llu ms exclusive=%s keyboard-mouse=%s",
+    Log("MMIO backend ready: mapping=%ls lease=%llu ms exclusive=%s keyboard-mouse=%s mouse-slider=%s",
         config.shared_memory_name.c_str(),
         config.max_input_lease_ms,
         config.exclusive_controller_input ? "true" : "false",
-        config.keyboard_mouse_frontend ? "true" : "false");
+        config.keyboard_mouse_frontend ? "true" : "false",
+        keyboardFrontend.IsMouseSliderEnabled() ? "true" : "false");
     return true;
 }
 

@@ -3,8 +3,10 @@
 #include "mm_io_window_hooks.h"
 
 #include "anyslider_log.h"
+#include "mm_io_keyboard.h"
 
 #include <atomic>
+#include <vector>
 
 namespace anyslider
 {
@@ -116,6 +118,17 @@ bool IsBlockedKeyboardMouseMessage(UINT message)
 
 LRESULT CALLBACK GameWindowProcedureHook(HWND window, UINT message, WPARAM wParam, LPARAM lParam)
 {
+    if (message == WM_INPUT)
+    {
+        static uint64_t rawInputCount = 0;
+        if (++rawInputCount <= 10)
+        {
+            Log("WM_INPUT received: count=%llu code=%u hwnd=%p",
+                rawInputCount, GET_RAWINPUT_CODE_WPARAM(wParam), window);
+        }
+        ProcessMmIoRawMouseInput(reinterpret_cast<HRAWINPUT>(lParam));
+    }
+
     if (ShouldBypassFocusLoss())
     {
         if ((message == WM_ACTIVATEAPP && wParam == FALSE) ||
@@ -128,16 +141,16 @@ LRESULT CALLBACK GameWindowProcedureHook(HWND window, UINT message, WPARAM wPara
 
     if (ShouldBlockKeyboardMouseInput())
     {
-        if (IsBlockedKeyboardMouseMessage(message))
-        {
-            return 0;
-        }
         if (message == WM_INPUT)
         {
             if (GET_RAWINPUT_CODE_WPARAM(wParam) == RIM_INPUT)
             {
                 return DefWindowProcW(window, message, wParam, lParam);
             }
+            return 0;
+        }
+        if (IsBlockedKeyboardMouseMessage(message))
+        {
             return 0;
         }
     }
@@ -176,12 +189,90 @@ HWND FindMainGameWindow()
     EnumWindows(FindGameWindow, reinterpret_cast<LPARAM>(&best));
     return best.first;
 }
+
+void DumpRegisteredRawInputDevices()
+{
+    UINT count = 0;
+    if (GetRegisteredRawInputDevices(nullptr, &count, sizeof(RAWINPUTDEVICE)) != 0)
+    {
+        Log("GetRegisteredRawInputDevices count failed: %lu", GetLastError());
+        return;
+    }
+    std::vector<RAWINPUTDEVICE> devices(count);
+    if (count == 0)
+    {
+        Log("No Raw Input registrations found.");
+        return;
+    }
+    UINT actual = count;
+    if (GetRegisteredRawInputDevices(devices.data(), &actual, sizeof(RAWINPUTDEVICE)) == static_cast<UINT>(-1))
+    {
+        Log("GetRegisteredRawInputDevices failed: %lu", GetLastError());
+        return;
+    }
+    for (const auto& device : devices)
+    {
+        Log("Raw Input registration: page=%04X usage=%04X flags=%08lX hwnd=%p",
+            device.usUsagePage, device.usUsage, device.dwFlags, device.hwndTarget);
+    }
+}
+
+bool EnsureMouseRawInput(HWND targetWindow)
+{
+    UINT count = 0;
+    if (GetRegisteredRawInputDevices(nullptr, &count, sizeof(RAWINPUTDEVICE)) != 0)
+    {
+        Log("Could not inspect Raw Input registrations: %lu", GetLastError());
+        return false;
+    }
+    std::vector<RAWINPUTDEVICE> devices(count);
+    if (count != 0)
+    {
+        UINT actual = count;
+        if (GetRegisteredRawInputDevices(devices.data(), &actual, sizeof(RAWINPUTDEVICE)) == static_cast<UINT>(-1))
+        {
+            Log("Could not inspect Raw Input registrations: %lu", GetLastError());
+            return false;
+        }
+        for (const auto& device : devices)
+        {
+            if (device.usUsagePage == 0x01 && device.usUsage == 0x02)
+            {
+                if (device.hwndTarget == targetWindow)
+                {
+                    Log("Existing Raw Input mouse registration: flags=%08lX hwnd=%p",
+                        device.dwFlags, device.hwndTarget);
+                    return true;
+                }
+                Log("Raw mouse is already registered to another window: hwnd=%p; mouse slider registration skipped.",
+                    device.hwndTarget);
+                return false;
+            }
+        }
+    }
+
+    RAWINPUTDEVICE mouseDevice{};
+    mouseDevice.usUsagePage = 0x01;
+    mouseDevice.usUsage = 0x02;
+    mouseDevice.dwFlags = RIDEV_INPUTSINK;
+    mouseDevice.hwndTarget = targetWindow;
+    if (!RegisterRawInputDevices(&mouseDevice, 1, sizeof(mouseDevice)))
+    {
+        Log("Could not register Raw Input mouse: %lu", GetLastError());
+        return false;
+    }
+    Log("Registered Raw Input mouse: hwnd=%p flags=%08lX",
+        targetWindow, mouseDevice.dwFlags);
+    return true;
+}
+
 }
 
 bool InitializeMmIoWindowHooks(const MmIoConfig& config)
 {
     windowHookConfig = config;
-    if (!config.block_keyboard_mouse_input && !config.keep_game_active_unfocused)
+    if (!config.block_keyboard_mouse_input && !config.keep_game_active_unfocused &&
+        !(config.keyboard_mouse_frontend && config.mouse_slider.enabled))
     {
         return true;
     }
@@ -222,7 +313,8 @@ bool InitializeMmIoWindowHooks(const MmIoConfig& config)
 
 void UpdateMmIoWindowHooks()
 {
-    if ((!windowHookConfig.keep_game_active_unfocused && !windowHookConfig.block_keyboard_mouse_input) ||
+    if ((!windowHookConfig.keep_game_active_unfocused && !windowHookConfig.block_keyboard_mouse_input &&
+         !(windowHookConfig.keyboard_mouse_frontend && windowHookConfig.mouse_slider.enabled)) ||
         originalWindowProcedure)
     {
         return;
@@ -234,6 +326,7 @@ void UpdateMmIoWindowHooks()
         return;
     }
 
+    // Install WndProc first, then register Raw Input against this window.
     SetLastError(ERROR_SUCCESS);
     originalWindowProcedure = reinterpret_cast<WNDPROC>(SetWindowLongPtrW(
         gameWindow,
@@ -245,9 +338,18 @@ void UpdateMmIoWindowHooks()
         return;
     }
 
-    Log("Window hook attached: focus=%s keyboard-mouse=%s",
+    if (windowHookConfig.keyboard_mouse_frontend && windowHookConfig.mouse_slider.enabled)
+    {
+        if (!EnsureMouseRawInput(gameWindow))
+        {
+            Log("Mouse slider is enabled but Raw Input mouse registration failed.");
+        }
+    }
+
+    Log("Window hook attached: focus=%s keyboard-mouse=%s raw-mouse=%s",
         windowHookConfig.keep_game_active_unfocused ? "true" : "false",
-        windowHookConfig.block_keyboard_mouse_input ? "true" : "false");
+        windowHookConfig.block_keyboard_mouse_input ? "true" : "false",
+        windowHookConfig.keyboard_mouse_frontend && windowHookConfig.mouse_slider.enabled ? "true" : "false");
 }
 
 ScopedMmIoKeyboardMousePoll::ScopedMmIoKeyboardMousePoll()

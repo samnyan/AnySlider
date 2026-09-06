@@ -4,6 +4,8 @@
 
 #include <array>
 #include <chrono>
+#include <cstdint>
+#include <string>
 #include <vector>
 
 namespace anyslider
@@ -38,7 +40,38 @@ struct MmIoKeyboardBindings
     std::array<MmIoKeyBinding, 32> slider_cells;
 };
 
+enum class MmIoMouseAxis
+{
+    X,
+    Y,
+    Wheel,
+};
+
+struct MmIoMouseSliderBinding
+{
+    MmIoMouseAxis axis = MmIoMouseAxis::X;
+    bool invert = false;
+    float sensitivity = 1.0f;
+};
+
+struct MmIoMouseSliderConfig
+{
+    bool enabled = false;
+    MmIoMouseSliderBinding slider_1{ MmIoMouseAxis::X, false, 1.0f };
+    MmIoMouseSliderBinding slider_2{ MmIoMouseAxis::Y, false, 1.0f };
+    float counts_per_cycle = 256.0f;
+    std::wstring device_filter;
+};
+
+struct MmIoRawMouseDelta
+{
+    int64_t x = 0;
+    int64_t y = 0;
+    int64_t wheel = 0;
+};
+
 MmIoKeyboardBindings DefaultMmIoKeyboardBindings();
+void ProcessMmIoRawMouseInput(HRAWINPUT rawInput);
 
 class MmIoKeyboardMouseFrontend
 {
@@ -46,8 +79,10 @@ public:
     void Initialize(
         bool enabled,
         float sliderCellsPerSecond,
-        const MmIoKeyboardBindings& bindings);
+        const MmIoKeyboardBindings& bindings,
+        const MmIoMouseSliderConfig& mouseSliderConfig);
     [[nodiscard]] bool IsEnabled() const;
+    [[nodiscard]] bool IsMouseSliderEnabled() const;
     mmio::InputSnapshot Poll();
 
 private:
@@ -63,6 +98,8 @@ private:
     std::chrono::steady_clock::time_point last_poll_time_{};
     bool has_last_poll_time_ = false;
     MmIoKeyboardBindings bindings_;
+    MmIoMouseSliderConfig mouse_slider_;
+    bool mouse_slider_enabled_ = false;
     SliderContact left_contact_{ 7.5f };
     SliderContact right_contact_{ 23.5f };
 
@@ -71,6 +108,14 @@ private:
         const MmIoKeyBinding& leftBinding,
         const MmIoKeyBinding& rightBinding,
         float deltaSeconds,
+        float startPosition,
+        float endPosition,
+        bool resetOnTap);
+
+    void UpdateMouseContact(
+        SliderContact& contact,
+        int64_t rawDelta,
+        const MmIoMouseSliderBinding& binding,
         float startPosition,
         float endPosition);
 };
