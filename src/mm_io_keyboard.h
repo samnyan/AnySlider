@@ -3,6 +3,7 @@
 #include "mm_io/shared_memory.h"
 
 #include <array>
+#include <chrono>
 #include <vector>
 
 namespace anyslider
@@ -59,7 +60,8 @@ private:
 
     bool enabled_ = false;
     float slider_cells_per_second_ = 18.0f;
-    uint64_t last_poll_us_ = 0;
+    std::chrono::steady_clock::time_point last_poll_time_{};
+    bool has_last_poll_time_ = false;
     MmIoKeyboardBindings bindings_;
     SliderContact left_contact_{ 7.5f };
     SliderContact right_contact_{ 23.5f };

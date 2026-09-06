@@ -65,7 +65,8 @@ void MmIoKeyboardMouseFrontend::Initialize(
     enabled_ = enabled;
     slider_cells_per_second_ = sliderCellsPerSecond;
     bindings_ = bindings;
-    last_poll_us_ = 0;
+    last_poll_time_ = {};
+    has_last_poll_time_ = false;
     left_contact_ = { 7.5f, false, false };
     right_contact_ = { 23.5f, false, false };
 }
@@ -116,11 +117,12 @@ mmio::InputSnapshot MmIoKeyboardMouseFrontend::Poll()
     }
 
     const ScopedMmIoKeyboardMousePoll keyboardPoll;
-    const uint64_t nowUs = MmIoNowMicroseconds();
-    const float deltaSeconds = last_poll_us_ == 0
-        ? 0.0f
-        : static_cast<float>(nowUs - last_poll_us_) / 1'000'000.0f;
-    last_poll_us_ = nowUs;
+    const auto now = std::chrono::steady_clock::now();
+    const float deltaSeconds = has_last_poll_time_
+        ? std::chrono::duration<float>(now - last_poll_time_).count()
+        : 0.0f;
+    last_poll_time_ = now;
+    has_last_poll_time_ = true;
     UpdateContact(
         left_contact_,
         bindings_.slider_1_left,
@@ -196,7 +198,7 @@ mmio::InputSnapshot MmIoKeyboardMouseFrontend::Poll()
     }
 
     snapshot.source_id = 0x4B424D4D; // MMBK
-    snapshot.timestamp_us = nowUs;
+    snapshot.timestamp_us = MmIoNowMicroseconds();
     snapshot.lease_ms = 500;
     return snapshot;
 }
