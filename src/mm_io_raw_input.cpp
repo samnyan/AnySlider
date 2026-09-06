@@ -134,7 +134,9 @@ void ProcessMmIoRawInput(HRAWINPUT rawInput)
         }
         return;
     }
-    if (input.header.dwType != RIM_TYPEMOUSE || !MatchesMouseSliderDevice(input.header.hDevice))
+    if (!mouse_slider_config.enabled ||
+        input.header.dwType != RIM_TYPEMOUSE ||
+        !MatchesMouseSliderDevice(input.header.hDevice))
     {
         return;
     }
