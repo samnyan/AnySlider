@@ -1,0 +1,51 @@
+name: Build DLL
+
+on:
+  push:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build Release x64
+    runs-on: windows-2025-vs2026
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup MSBuild
+        uses: microsoft/setup-msbuild@v2
+        with:
+          vs-version: '[18.0,19.0)'
+          msbuild-architecture: x64
+
+      - name: Build AnySlider
+        shell: pwsh
+        run: |
+          msbuild AnySlider.vcxproj `
+            /m `
+            /p:Configuration=Release `
+            /p:Platform=x64 `
+            /p:OutDir="$env:GITHUB_WORKSPACE\artifact\\"
+
+      - name: Verify DLL
+        shell: pwsh
+        run: |
+          $dll = Join-Path $env:GITHUB_WORKSPACE "artifact\AnySlider.dll"
+
+          if (-not (Test-Path $dll)) {
+            throw "Build succeeded but AnySlider.dll was not found at $dll"
+          }
+
+          Get-Item $dll | Format-List Name, Length, LastWriteTime
+
+      - name: Upload AnySlider.dll
+        uses: actions/upload-artifact@v4
+        with:
+          name: AnySlider-${{ github.ref_name }}-${{ github.sha }}
+          path: artifact/AnySlider.dll
+          if-no-files-found: error
+          retention-days: 30

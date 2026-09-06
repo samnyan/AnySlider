@@ -6,6 +6,7 @@
 #include "mm_io_window_hooks.h"
 
 #include <algorithm>
+#include <cmath>
 
 namespace anyslider
 {
@@ -22,6 +23,13 @@ bool IsDown(const MmIoKeyBinding& binding)
     {
         return IsDown(virtualKey);
     });
+}
+
+float WrapContactPosition(float position, float startPosition, float length)
+{
+    return startPosition + std::fmod(
+        std::fmod(position - startPosition, length) + length,
+        length);
 }
 }
 
@@ -58,6 +66,8 @@ void MmIoKeyboardMouseFrontend::Initialize(
     slider_cells_per_second_ = sliderCellsPerSecond;
     bindings_ = bindings;
     last_poll_us_ = 0;
+    left_contact_ = { 7.5f, false, false };
+    right_contact_ = { 23.5f, false, false };
 }
 
 bool MmIoKeyboardMouseFrontend::IsEnabled() const
@@ -69,20 +79,32 @@ void MmIoKeyboardMouseFrontend::UpdateContact(
     SliderContact& contact,
     const MmIoKeyBinding& leftBinding,
     const MmIoKeyBinding& rightBinding,
-    float deltaSeconds)
+    float deltaSeconds,
+    float startPosition,
+    float endPosition)
 {
     const bool left = IsDown(leftBinding);
     const bool right = IsDown(rightBinding);
+    const float range = endPosition - startPosition;
+
+    const bool leftTapped = left && !contact.left_down;
+    const bool rightTapped = right && !contact.right_down;
+    contact.left_down = left;
+    contact.right_down = right;
+
+    if (leftTapped || rightTapped)
+    {
+        contact.position = startPosition + (range - 1.0f) * 0.5f;
+    }
+
     if (left == right)
     {
         return;
     }
 
     const float direction = left ? -1.0f : 1.0f;
-    contact.position = std::clamp(
-        contact.position + direction * slider_cells_per_second_ * deltaSeconds,
-        0.0f,
-        31.0f);
+    contact.position += direction * slider_cells_per_second_ * deltaSeconds;
+    contact.position = WrapContactPosition(contact.position, startPosition, range);
 }
 
 mmio::InputSnapshot MmIoKeyboardMouseFrontend::Poll()
@@ -103,12 +125,16 @@ mmio::InputSnapshot MmIoKeyboardMouseFrontend::Poll()
         left_contact_,
         bindings_.slider_1_left,
         bindings_.slider_1_right,
-        deltaSeconds);
+        deltaSeconds,
+        0.0f,
+        16.0f);
     UpdateContact(
         right_contact_,
         bindings_.slider_2_left,
         bindings_.slider_2_right,
-        deltaSeconds);
+        deltaSeconds,
+        16.0f,
+        32.0f);
 
     struct Binding
     {
@@ -152,12 +178,12 @@ mmio::InputSnapshot MmIoKeyboardMouseFrontend::Poll()
         IsDown(bindings_.slider_2_left) || IsDown(bindings_.slider_2_right);
     if (leftContactActive)
     {
-        const auto sensor = static_cast<unsigned int>(left_contact_.position + 0.5f);
+        const auto sensor = static_cast<unsigned int>(std::floor(left_contact_.position));
         snapshot.touch_cells[sensor] = 1;
     }
     if (rightContactActive)
     {
-        const auto sensor = static_cast<unsigned int>(right_contact_.position + 0.5f);
+        const auto sensor = static_cast<unsigned int>(std::floor(right_contact_.position));
         snapshot.touch_cells[sensor] = 1;
     }
 

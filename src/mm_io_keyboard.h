@@ -52,7 +52,9 @@ public:
 private:
     struct SliderContact
     {
-        float position;
+        float position = 0.0f;
+        bool left_down = false;
+        bool right_down = false;
     };
 
     bool enabled_ = false;
@@ -66,6 +68,8 @@ private:
         SliderContact& contact,
         const MmIoKeyBinding& leftBinding,
         const MmIoKeyBinding& rightBinding,
-        float deltaSeconds);
+        float deltaSeconds,
+        float startPosition,
+        float endPosition);
 };
 }
