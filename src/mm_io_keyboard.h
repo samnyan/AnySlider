@@ -39,7 +39,7 @@ struct MmIoKeyboardBindings
 
 MmIoKeyboardBindings DefaultMmIoKeyboardBindings();
 
-class MmIoKeyboardFrontend
+class MmIoKeyboardMouseFrontend
 {
 public:
     void Initialize(

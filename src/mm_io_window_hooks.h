@@ -7,13 +7,13 @@ namespace anyslider
 bool InitializeMmIoWindowHooks(const MmIoConfig& config);
 void UpdateMmIoWindowHooks();
 
-class ScopedMmIoKeyboardPoll
+class ScopedMmIoKeyboardMousePoll
 {
 public:
-    ScopedMmIoKeyboardPoll();
-    ~ScopedMmIoKeyboardPoll();
+    ScopedMmIoKeyboardMousePoll();
+    ~ScopedMmIoKeyboardMousePoll();
 
-    ScopedMmIoKeyboardPoll(const ScopedMmIoKeyboardPoll&) = delete;
-    ScopedMmIoKeyboardPoll& operator=(const ScopedMmIoKeyboardPoll&) = delete;
+    ScopedMmIoKeyboardMousePoll(const ScopedMmIoKeyboardMousePoll&) = delete;
+    ScopedMmIoKeyboardMousePoll& operator=(const ScopedMmIoKeyboardMousePoll&) = delete;
 };
 }

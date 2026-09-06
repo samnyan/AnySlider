@@ -49,7 +49,7 @@ MmIoKeyboardBindings DefaultMmIoKeyboardBindings()
     return bindings;
 }
 
-void MmIoKeyboardFrontend::Initialize(
+void MmIoKeyboardMouseFrontend::Initialize(
     bool enabled,
     float sliderCellsPerSecond,
     const MmIoKeyboardBindings& bindings)
@@ -60,12 +60,12 @@ void MmIoKeyboardFrontend::Initialize(
     last_poll_us_ = 0;
 }
 
-bool MmIoKeyboardFrontend::IsEnabled() const
+bool MmIoKeyboardMouseFrontend::IsEnabled() const
 {
     return enabled_;
 }
 
-void MmIoKeyboardFrontend::UpdateContact(
+void MmIoKeyboardMouseFrontend::UpdateContact(
     SliderContact& contact,
     const MmIoKeyBinding& leftBinding,
     const MmIoKeyBinding& rightBinding,
@@ -85,7 +85,7 @@ void MmIoKeyboardFrontend::UpdateContact(
         31.0f);
 }
 
-mmio::InputSnapshot MmIoKeyboardFrontend::Poll()
+mmio::InputSnapshot MmIoKeyboardMouseFrontend::Poll()
 {
     mmio::InputSnapshot snapshot{};
     if (!enabled_)
@@ -93,7 +93,7 @@ mmio::InputSnapshot MmIoKeyboardFrontend::Poll()
         return snapshot;
     }
 
-    const ScopedMmIoKeyboardPoll keyboardPoll;
+    const ScopedMmIoKeyboardMousePoll keyboardPoll;
     const uint64_t nowUs = MmIoNowMicroseconds();
     const float deltaSeconds = last_poll_us_ == 0
         ? 0.0f

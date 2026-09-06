@@ -166,7 +166,7 @@ struct InputSnapshot
     uint64_t timestamp_us;
 
     // Validity window in milliseconds. Must be nonzero and no greater than the
-    // hook's configured io_input_lease_ms limit.
+    // hook's configured maximum input lease limit.
     uint64_t lease_ms;
 };
 

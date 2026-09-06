@@ -15,17 +15,25 @@ vid_pids = ["054C:05C4"]
 target_controller_type = 7
 
 # Native Mega Mix+ input backend. It does not require a virtual HORI device.
-io_hook = false
+io_enabled = true
 io_shared_memory = "Local\\MMIO_SHARED_BUFFER"
-io_input_lease_ms = 500
-io_takeover = false
+io_max_input_lease_ms = 500
 
-# Built-in test frontend. It is sampled by the game input hook only when enabled.
-io_keyboard_frontend = false
-io_keyboard_slider_cells_per_second = 18.0
+# Advanced: disable the game's native controller input while AnySlider is active.
+io_exclusive_controller_input = false
+
+# Built-in keyboard/mouse test frontend, game will detect as gamepad.
+io_keyboard_mouse_frontend = false
+# Disable original keyboard/mouse input, otherwise it will cause dual input.
+io_block_keyboard_mouse_input = false
+# Emulate slider speed.
+io_keyboard_slider_cells_per_second = 32.0
+
+# Keep the game active even when not at foreground.
+io_keep_game_active_unfocused = false
 
 # Each binding accepts a comma-delimited string or a string array. [] disables it.
-# Names follow PD-Loader conventions: W, F1, Enter, Left, LeftShift, NumPad0,
+# Names conventions: W, F1, Enter, Left, LeftShift, NumPad0,
 # Space, MouseLeft, or a literal virtual-key code such as 0x41.
 io_key_test = ["F1"]
 io_key_service = ["F2"]
@@ -86,10 +94,3 @@ io_key_slider_29 = []
 io_key_slider_30 = []
 io_key_slider_31 = []
 io_key_slider_32 = []
-
-# Keep the game active beneath an overlay and block its physical keyboard path.
-io_bypass_focus_loss = false
-io_block_keyboard_input = false
-
-# While the MMIO backend is active, use the game's controller-prompt presentation.
-io_force_gamepad_ui = false

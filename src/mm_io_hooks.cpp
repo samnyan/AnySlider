@@ -27,22 +27,19 @@ using MergeSliderSensorButtons = int64_t(__fastcall*)(void* state, void* sensorS
 using MergeConnectedDevice = int64_t(__fastcall*)(void* state, void* deviceState, uint32_t playerIndex);
 using MergeSelectedDevice = int64_t(__fastcall*)(void* state, void* deviceState, uint32_t playerIndex, uint32_t* selectedDeviceType);
 using IsArcadeControllerEnabled = bool(__fastcall*)();
-using SteamInputPollAndMapDirections = char(__fastcall*)(void* manager, uint32_t* state);
 
 MergeSliderSensorButtons originalMergeSliderSensorButtons = nullptr;
 MergeConnectedDevice originalMergeConnectedDevice = nullptr;
 MergeSelectedDevice originalMergeSelectedDevice = nullptr;
 IsArcadeControllerEnabled originalIsArcadeControllerEnabled = nullptr;
-SteamInputPollAndMapDirections originalSteamInputPollAndMapDirections = nullptr;
 
 MmIoConfig mmIoConfig;
 MmIoConsumer mmIoConsumer;
-MmIoKeyboardFrontend keyboardFrontend;
+MmIoKeyboardMouseFrontend keyboardFrontend;
 std::atomic_bool arcadeSliderActive = false;
-std::atomic_bool steamInputDetected = false;
-std::atomic_bool takeoverActive = false;
+std::atomic_bool exclusiveControllerActive = false;
 bool installed = false;
-bool steamInputHookInstalled = false;
+bool exclusiveControllerHooksInstalled = false;
 
 struct AcceptedInputFrame
 {
@@ -53,7 +50,7 @@ struct AcceptedInputFrame
     uint32_t gamepad_slide = 0;
     mmio::Mode slider_mode = mmio::Mode::None;
     bool active = false;
-    bool takeover = false;
+    bool exclusive = false;
 };
 
 thread_local AcceptedInputFrame acceptedInputFrame;
@@ -164,7 +161,7 @@ void RefreshAcceptedInputFrame()
 {
     MmIoConsumer::InputFrame externalFrame{};
     const bool externalFrameAvailable = mmIoConsumer.ReadFrame(
-        externalFrame, mmIoConfig.input_lease_ms);
+        externalFrame, mmIoConfig.max_input_lease_ms);
     const bool externalActive = externalFrame.source_active;
     const mmio::InputSnapshot keyboardSnapshot = keyboardFrontend.Poll();
     const bool keyboardActive = keyboardFrontend.IsEnabled();
@@ -260,21 +257,21 @@ void RefreshAcceptedInputFrame()
         }
     }
 
-    acceptedInputFrame.takeover =
-        (externalActive || keyboardActive) && mmIoConfig.takeover;
+    acceptedInputFrame.exclusive =
+        (externalActive || keyboardActive) && mmIoConfig.exclusive_controller_input;
     arcadeSliderActive.store(
         acceptedInputFrame.active &&
             acceptedInputFrame.slider_mode == mmio::Mode::ArcadeSlider,
         std::memory_order_relaxed);
 
-    const bool previousTakeover = takeoverActive.exchange(
-        acceptedInputFrame.takeover,
+    const bool previousExclusive = exclusiveControllerActive.exchange(
+        acceptedInputFrame.exclusive,
         std::memory_order_relaxed);
-    if (previousTakeover != acceptedInputFrame.takeover)
+    if (previousExclusive != acceptedInputFrame.exclusive)
     {
-        Log("MMIO takeover %s; physical input merge is %s.",
-            acceptedInputFrame.takeover ? "active" : "inactive",
-            acceptedInputFrame.takeover ? "blocked" : "enabled");
+        Log("MMIO exclusive controller input %s; physical input merge is %s.",
+            acceptedInputFrame.exclusive ? "active" : "inactive",
+            acceptedInputFrame.exclusive ? "blocked" : "enabled");
     }
 }
 
@@ -314,7 +311,7 @@ void InjectAcceptedInput(void* state)
 int64_t __fastcall MergeSliderSensorButtonsHook(void* state, void* sensorState)
 {
     RefreshAcceptedInputFrame();
-    if (acceptedInputFrame.takeover)
+    if (acceptedInputFrame.exclusive)
     {
         InjectAcceptedInput(state);
         return 0;
@@ -327,7 +324,7 @@ int64_t __fastcall MergeSliderSensorButtonsHook(void* state, void* sensorState)
 
 int64_t __fastcall MergeConnectedDeviceHook(void* state, void* deviceState, uint32_t playerIndex)
 {
-    if (acceptedInputFrame.takeover)
+    if (acceptedInputFrame.exclusive)
     {
         return 0;
     }
@@ -340,8 +337,7 @@ int64_t __fastcall MergeSelectedDeviceHook(
     uint32_t playerIndex,
     uint32_t* selectedDeviceType)
 {
-    if (acceptedInputFrame.takeover ||
-        (acceptedInputFrame.active && mmIoConfig.force_gamepad_ui))
+    if (acceptedInputFrame.exclusive)
     {
         static_cast<uint8_t*>(state)[InputSelectedDevicePresentOffset] = 1;
         if (selectedDeviceType)
@@ -359,16 +355,6 @@ bool __fastcall IsArcadeControllerEnabledHook()
         arcadeSliderActive.load(std::memory_order_relaxed);
 }
 
-char __fastcall SteamInputPollAndMapDirectionsHook(void* manager, uint32_t* state)
-{
-    const char result = originalSteamInputPollAndMapDirections(manager, state);
-    if (result && !steamInputDetected.exchange(true, std::memory_order_relaxed))
-    {
-        Log("Steam Input controller detected; gamepad UI may be selected by the game.");
-    }
-    return result;
-}
-
 bool InstallDetours()
 {
     constexpr char sliderMergeBytes[] =
@@ -383,25 +369,28 @@ bool InstallDetours()
     constexpr char arcadeBytes[] =
         "\x48\x83\xEC\x28\xE8\x00\x00\x00\x00\x0F\xB6\x40";
     constexpr char arcadeMask[] = "xxxxx????xxx";
-    constexpr char steamInputBytes[] =
-        "\x48\x8B\xC4\x48\x89\x58\x00\x48\x89\x70\x00\x55\x57\x41\x56\x48\x8D\x68\x00\x48\x81\xEC\x90\x00\x00\x00\x0F\x29\x70\x00\x0F\x29\x78";
-    constexpr char steamInputMask[] = "xxxxxx?xxx?xxxxxxx?xxxxxxxxxx?xxx";
 
     originalMergeSliderSensorButtons = reinterpret_cast<MergeSliderSensorButtons>(
         FindSignature(sliderMergeBytes, sliderMergeMask));
-    originalMergeConnectedDevice = reinterpret_cast<MergeConnectedDevice>(
-        FindSignature(connectedMergeBytes, connectedMergeMask));
-    originalMergeSelectedDevice = reinterpret_cast<MergeSelectedDevice>(
-        FindSignature(selectedMergeBytes, selectedMergeMask));
     originalIsArcadeControllerEnabled = reinterpret_cast<IsArcadeControllerEnabled>(
         FindSignature(arcadeBytes, arcadeMask));
-    if (!originalMergeSliderSensorButtons ||
-        !originalMergeConnectedDevice ||
-        !originalMergeSelectedDevice ||
-        !originalIsArcadeControllerEnabled)
+    if (!originalMergeSliderSensorButtons || !originalIsArcadeControllerEnabled)
     {
-        Log("MMIO input signatures were not found; no MMIO hooks were installed.");
+        Log("MMIO core input signatures were not found; no MMIO hooks were installed.");
         return false;
+    }
+
+    if (mmIoConfig.exclusive_controller_input)
+    {
+        originalMergeConnectedDevice = reinterpret_cast<MergeConnectedDevice>(
+            FindSignature(connectedMergeBytes, connectedMergeMask));
+        originalMergeSelectedDevice = reinterpret_cast<MergeSelectedDevice>(
+            FindSignature(selectedMergeBytes, selectedMergeMask));
+        if (!originalMergeConnectedDevice || !originalMergeSelectedDevice)
+        {
+            Log("MMIO exclusive controller signatures were not found.");
+            return false;
+        }
     }
 
     LONG error = DetourTransactionBegin();
@@ -415,13 +404,13 @@ bool InstallDetours()
             reinterpret_cast<void**>(&originalMergeSliderSensorButtons),
             MergeSliderSensorButtonsHook);
     }
-    if (error == NO_ERROR)
+    if (error == NO_ERROR && mmIoConfig.exclusive_controller_input)
     {
         error = DetourAttach(
             reinterpret_cast<void**>(&originalMergeConnectedDevice),
             MergeConnectedDeviceHook);
     }
-    if (error == NO_ERROR)
+    if (error == NO_ERROR && mmIoConfig.exclusive_controller_input)
     {
         error = DetourAttach(
             reinterpret_cast<void**>(&originalMergeSelectedDevice),
@@ -449,44 +438,7 @@ bool InstallDetours()
     }
 
     installed = true;
-
-    originalSteamInputPollAndMapDirections =
-        reinterpret_cast<SteamInputPollAndMapDirections>(
-            FindSignature(steamInputBytes, steamInputMask));
-    if (!originalSteamInputPollAndMapDirections)
-    {
-        Log("Steam Input detection signature was not found.");
-        return true;
-    }
-
-    error = DetourTransactionBegin();
-    if (error == NO_ERROR)
-    {
-        error = DetourUpdateThread(GetCurrentThread());
-    }
-    if (error == NO_ERROR)
-    {
-        error = DetourAttach(
-            reinterpret_cast<void**>(&originalSteamInputPollAndMapDirections),
-            SteamInputPollAndMapDirectionsHook);
-    }
-    if (error == NO_ERROR)
-    {
-        error = DetourTransactionCommit();
-    }
-    else
-    {
-        DetourTransactionAbort();
-    }
-
-    if (error != NO_ERROR)
-    {
-        Log("Could not install Steam Input detection hook: %ld", error);
-        return true;
-    }
-
-    steamInputHookInstalled = true;
-    Log("Steam Input detection hook installed.");
+    exclusiveControllerHooksInstalled = mmIoConfig.exclusive_controller_input;
     return true;
 }
 }
@@ -500,7 +452,7 @@ bool InitializeMmIoHooks(const MmIoConfig& config)
 
     mmIoConfig = config;
     keyboardFrontend.Initialize(
-        config.keyboard_frontend,
+        config.keyboard_mouse_frontend,
         config.keyboard_slider_cells_per_second,
         config.keyboard_bindings);
     if (!mmIoConsumer.Initialize(
@@ -516,20 +468,19 @@ bool InitializeMmIoHooks(const MmIoConfig& config)
         return false;
     }
 
-    Log("MMIO backend ready: mapping=%ls lease=%llu ms takeover=%s keyboard=%s gamepad-ui=%s",
+    Log("MMIO backend ready: mapping=%ls lease=%llu ms exclusive=%s keyboard-mouse=%s",
         config.shared_memory_name.c_str(),
-        config.input_lease_ms,
-        config.takeover ? "true" : "false",
-        config.keyboard_frontend ? "true" : "false",
-        config.force_gamepad_ui ? "true" : "false");
+        config.max_input_lease_ms,
+        config.exclusive_controller_input ? "true" : "false",
+        config.keyboard_mouse_frontend ? "true" : "false");
     return true;
 }
 
 void ShutdownMmIoHooks()
 {
     arcadeSliderActive.store(false, std::memory_order_relaxed);
-    steamInputDetected.store(false, std::memory_order_relaxed);
-    takeoverActive.store(false, std::memory_order_relaxed);
+    exclusiveControllerActive.store(false, std::memory_order_relaxed);
+    acceptedInputFrame = {};
     mmIoConsumer.Shutdown();
     if (!installed)
     {
@@ -538,22 +489,19 @@ void ShutdownMmIoHooks()
 
     DetourTransactionBegin();
     DetourUpdateThread(GetCurrentThread());
-    if (steamInputHookInstalled)
-    {
-        DetourDetach(
-            reinterpret_cast<void**>(&originalSteamInputPollAndMapDirections),
-            SteamInputPollAndMapDirectionsHook);
-        steamInputHookInstalled = false;
-    }
     DetourDetach(
         reinterpret_cast<void**>(&originalMergeSliderSensorButtons),
         MergeSliderSensorButtonsHook);
-    DetourDetach(
-        reinterpret_cast<void**>(&originalMergeConnectedDevice),
-        MergeConnectedDeviceHook);
-    DetourDetach(
-        reinterpret_cast<void**>(&originalMergeSelectedDevice),
-        MergeSelectedDeviceHook);
+    if (exclusiveControllerHooksInstalled)
+    {
+        DetourDetach(
+            reinterpret_cast<void**>(&originalMergeConnectedDevice),
+            MergeConnectedDeviceHook);
+        DetourDetach(
+            reinterpret_cast<void**>(&originalMergeSelectedDevice),
+            MergeSelectedDeviceHook);
+        exclusiveControllerHooksInstalled = false;
+    }
     DetourDetach(
         reinterpret_cast<void**>(&originalIsArcadeControllerEnabled),
         IsArcadeControllerEnabledHook);

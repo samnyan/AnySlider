@@ -37,6 +37,11 @@ __declspec(dllexport) void Init()
     {
         return;
     }
+    if (!mmIoConfig.enabled)
+    {
+        anyslider::Log("Native IO disabled by io_enabled=false.");
+        return;
+    }
     if (!anyslider::InitializeMmIoWindowHooks(mmIoConfig))
     {
         anyslider::Log("MMIO window hooks are unavailable.");

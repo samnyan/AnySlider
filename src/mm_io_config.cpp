@@ -215,17 +215,16 @@ bool LoadMmIoConfig(MmIoConfig& config)
     try
     {
         const toml::table document = toml::parse_file("config.toml");
-        config.enabled = document["io_hook"].value_or(false);
-        config.takeover = document["io_takeover"].value_or(false);
-        config.keyboard_frontend = document["io_keyboard_frontend"].value_or(false);
-        config.bypass_focus_loss = document["io_bypass_focus_loss"].value_or(false);
-        config.block_keyboard_input = document["io_block_keyboard_input"].value_or(false);
-        config.force_gamepad_ui = document["io_force_gamepad_ui"].value_or(false);
-        config.input_lease_ms = document["io_input_lease_ms"].value_or<uint64_t>(500);
-        if (config.input_lease_ms == 0 || config.input_lease_ms > 10'000)
+        config.enabled = document["io_enabled"].value_or(false);
+        config.keyboard_mouse_frontend = document["io_keyboard_mouse_frontend"].value_or(false);
+        config.keep_game_active_unfocused = document["io_keep_game_active_unfocused"].value_or(false);
+        config.block_keyboard_mouse_input = document["io_block_keyboard_mouse_input"].value_or(false);
+        config.exclusive_controller_input = document["io_exclusive_controller_input"].value_or(false);
+        config.max_input_lease_ms = document["io_max_input_lease_ms"].value_or<uint64_t>(500);
+        if (config.max_input_lease_ms == 0 || config.max_input_lease_ms > 10'000)
         {
-            Log("Invalid io_input_lease_ms; using 500 ms.");
-            config.input_lease_ms = 500;
+            Log("Invalid io_max_input_lease_ms; using 500 ms.");
+            config.max_input_lease_ms = 500;
         }
         config.keyboard_slider_cells_per_second =
             document["io_keyboard_slider_cells_per_second"].value_or(18.0f);

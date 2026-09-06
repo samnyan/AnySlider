@@ -22,12 +22,12 @@ thread_local bool allowKeyboardFrontendPoll = false;
 
 bool ShouldBypassFocusLoss()
 {
-    return windowHookConfig.bypass_focus_loss;
+    return windowHookConfig.keep_game_active_unfocused;
 }
 
-bool ShouldBlockKeyboardInput()
+bool ShouldBlockKeyboardMouseInput()
 {
-    return windowHookConfig.block_keyboard_input;
+    return windowHookConfig.block_keyboard_mouse_input;
 }
 
 bool IsKeyboardVirtualKey(int virtualKey)
@@ -49,10 +49,22 @@ bool IsKeyboardVirtualKey(int virtualKey)
         (virtualKey >= VK_ATTN && virtualKey <= VK_PLAY);
 }
 
+bool IsMouseVirtualKey(int virtualKey)
+{
+    return virtualKey == VK_LBUTTON || virtualKey == VK_RBUTTON ||
+        virtualKey == VK_MBUTTON || virtualKey == VK_XBUTTON1 ||
+        virtualKey == VK_XBUTTON2;
+}
+
+bool IsKeyboardMouseVirtualKey(int virtualKey)
+{
+    return IsKeyboardVirtualKey(virtualKey) || IsMouseVirtualKey(virtualKey);
+}
+
 SHORT WINAPI GetAsyncKeyStateHook(int virtualKey)
 {
-    if (ShouldBlockKeyboardInput() &&
-        IsKeyboardVirtualKey(virtualKey) &&
+    if (windowHookConfig.block_keyboard_mouse_input &&
+        IsKeyboardMouseVirtualKey(virtualKey) &&
         !allowKeyboardFrontendPoll)
     {
         return 0;
@@ -69,16 +81,33 @@ HWND WINAPI GetForegroundWindowHook()
     return originalGetForegroundWindow();
 }
 
-bool IsBlockedKeyboardMessage(UINT message)
+bool IsBlockedKeyboardMouseMessage(UINT message)
 {
     switch (message)
     {
     case WM_KEYDOWN:
+    case WM_KEYUP:
     case WM_SYSKEYDOWN:
+    case WM_SYSKEYUP:
     case WM_CHAR:
     case WM_SYSCHAR:
     case WM_DEADCHAR:
     case WM_SYSDEADCHAR:
+    case WM_MOUSEMOVE:
+    case WM_LBUTTONDOWN:
+    case WM_LBUTTONUP:
+    case WM_LBUTTONDBLCLK:
+    case WM_RBUTTONDOWN:
+    case WM_RBUTTONUP:
+    case WM_RBUTTONDBLCLK:
+    case WM_MBUTTONDOWN:
+    case WM_MBUTTONUP:
+    case WM_MBUTTONDBLCLK:
+    case WM_XBUTTONDOWN:
+    case WM_XBUTTONUP:
+    case WM_XBUTTONDBLCLK:
+    case WM_MOUSEWHEEL:
+    case WM_MOUSEHWHEEL:
         return true;
     default:
         return false;
@@ -97,9 +126,9 @@ LRESULT CALLBACK GameWindowProcedureHook(HWND window, UINT message, WPARAM wPara
         }
     }
 
-    if (ShouldBlockKeyboardInput())
+    if (ShouldBlockKeyboardMouseInput())
     {
-        if (IsBlockedKeyboardMessage(message))
+        if (IsBlockedKeyboardMouseMessage(message))
         {
             return 0;
         }
@@ -152,23 +181,23 @@ HWND FindMainGameWindow()
 bool InitializeMmIoWindowHooks(const MmIoConfig& config)
 {
     windowHookConfig = config;
-    if (!config.block_keyboard_input && !config.bypass_focus_loss)
+    if (!config.block_keyboard_mouse_input && !config.keep_game_active_unfocused)
     {
         return true;
     }
 
     LONG error = DetourTransactionBegin();
-    if (error == NO_ERROR && config.block_keyboard_input)
+    if (error == NO_ERROR)
     {
         error = DetourUpdateThread(GetCurrentThread());
     }
-    if (error == NO_ERROR && config.bypass_focus_loss)
+    if (error == NO_ERROR && config.keep_game_active_unfocused)
     {
         error = DetourAttach(
             reinterpret_cast<void**>(&originalGetForegroundWindow),
             GetForegroundWindowHook);
     }
-    if (error == NO_ERROR)
+    if (error == NO_ERROR && config.block_keyboard_mouse_input)
     {
         error = DetourAttach(
             reinterpret_cast<void**>(&originalGetAsyncKeyState),
@@ -193,7 +222,7 @@ bool InitializeMmIoWindowHooks(const MmIoConfig& config)
 
 void UpdateMmIoWindowHooks()
 {
-    if ((!windowHookConfig.bypass_focus_loss && !windowHookConfig.block_keyboard_input) ||
+    if ((!windowHookConfig.keep_game_active_unfocused && !windowHookConfig.block_keyboard_mouse_input) ||
         originalWindowProcedure)
     {
         return;
@@ -216,17 +245,17 @@ void UpdateMmIoWindowHooks()
         return;
     }
 
-    Log("Window hook attached: focus=%s keyboard=%s",
-        windowHookConfig.bypass_focus_loss ? "true" : "false",
-        windowHookConfig.block_keyboard_input ? "true" : "false");
+    Log("Window hook attached: focus=%s keyboard-mouse=%s",
+        windowHookConfig.keep_game_active_unfocused ? "true" : "false",
+        windowHookConfig.block_keyboard_mouse_input ? "true" : "false");
 }
 
-ScopedMmIoKeyboardPoll::ScopedMmIoKeyboardPoll()
+ScopedMmIoKeyboardMousePoll::ScopedMmIoKeyboardMousePoll()
 {
     allowKeyboardFrontendPoll = true;
 }
 
-ScopedMmIoKeyboardPoll::~ScopedMmIoKeyboardPoll()
+ScopedMmIoKeyboardMousePoll::~ScopedMmIoKeyboardMousePoll()
 {
     allowKeyboardFrontendPoll = false;
 }
