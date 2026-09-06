@@ -67,7 +67,7 @@ bool MatchesMouseSliderDevice(HANDLE device)
         if (!loggedNullDevice)
         {
             loggedNullDevice = true;
-            Log("Ignoring Raw mouse with null device handle.");
+            DebugLog("Ignoring Raw mouse with null device handle.");
         }
         return false;
     }
@@ -94,7 +94,7 @@ bool MatchesMouseSliderDevice(HANDLE device)
     name.resize(std::wcslen(name.c_str()));
     const bool matches = mouse_slider_config.device_filter.empty() ||
         ContainsCaseInsensitive(name, mouse_slider_config.device_filter);
-    Log("Raw mouse detected: device=%p name=%ls mouse-slider=%s",
+    DebugLog("Raw mouse detected: device=%p name=%ls mouse-slider=%s",
         device, name.c_str(), matches ? "yes" : "no");
     {
         std::lock_guard lock(mouse_device_cache_mutex);
@@ -157,14 +157,14 @@ void ProcessMmIoRawMouseInput(HRAWINPUT rawInput)
     static uint32_t debugCount = 0;
     if (debugCount++ < 100)
     {
-        Log("Raw mouse: device=%p flags=0x%04X dx=%ld dy=%ld buttons=0x%04X",
+        DebugLog("Raw mouse: device=%p flags=0x%04X dx=%ld dy=%ld buttons=0x%04X",
             input.header.hDevice, mouse.usFlags, mouse.lLastX, mouse.lLastY, mouse.usButtonFlags);
     }
     if ((mouse.usFlags & MOUSE_MOVE_ABSOLUTE) != 0)
     {
         if (debugCount <= 100)
         {
-            Log("Ignoring absolute raw mouse: x=%ld y=%ld", mouse.lLastX, mouse.lLastY);
+            DebugLog("Ignoring absolute raw mouse: x=%ld y=%ld", mouse.lLastX, mouse.lLastY);
         }
     }
     else
@@ -318,7 +318,7 @@ mmio::InputSnapshot MmIoKeyboardMouseFrontend::Poll()
     const auto mouseDelta = ConsumeMmIoRawMouseDelta();
     if (mouseDelta.x != 0 || mouseDelta.y != 0 || mouseDelta.wheel != 0)
     {
-        Log("Mouse slider delta: x=%lld y=%lld wheel=%lld",
+        DebugLog("Mouse slider delta: x=%lld y=%lld wheel=%lld",
             mouseDelta.x, mouseDelta.y, mouseDelta.wheel);
     }
     UpdateMouseContact(
@@ -335,7 +335,7 @@ mmio::InputSnapshot MmIoKeyboardMouseFrontend::Poll()
         32.0f);
     if (mouseDelta.x != 0 || mouseDelta.y != 0 || mouseDelta.wheel != 0)
     {
-        Log("Mouse slider positions: left=%.3f right=%.3f",
+        DebugLog("Mouse slider positions: left=%.3f right=%.3f",
             left_contact_.position, right_contact_.position);
     }
     struct Binding

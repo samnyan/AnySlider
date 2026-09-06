@@ -269,6 +269,7 @@ bool LoadMmIoConfig(MmIoConfig& config)
     try
     {
         const toml::table document = toml::parse_file("config.toml");
+        SetDebugLoggingEnabled(document["debug"].value_or(false));
         config.enabled = document["io_enabled"].value_or(false);
         config.keyboard_mouse_frontend = document["io_keyboard_mouse_frontend"].value_or(false);
         config.keep_game_active_unfocused = document["io_keep_game_active_unfocused"].value_or(false);

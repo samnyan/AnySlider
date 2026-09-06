@@ -14,8 +14,10 @@ vid_pids = ["054C:05C4"]
 # 7 = HORI PS4-161 Future Tone DX (0F0D:013C)
 target_controller_type = 7
 
-# Native Mega Mix+ input backend. It does not require a virtual HORI device.
-io_enabled = true
+# Verbose diagnostic logging. May affect input performance with high-polling-rate devices.
+debug = false
+
+
 io_shared_memory = "Local\\MMIO_SHARED_BUFFER"
 io_max_input_lease_ms = 500
 

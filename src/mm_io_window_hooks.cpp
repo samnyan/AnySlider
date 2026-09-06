@@ -123,7 +123,7 @@ LRESULT CALLBACK GameWindowProcedureHook(HWND window, UINT message, WPARAM wPara
         static uint64_t rawInputCount = 0;
         if (++rawInputCount <= 10)
         {
-            Log("WM_INPUT received: count=%llu code=%u hwnd=%p",
+            DebugLog("WM_INPUT received: count=%llu code=%u hwnd=%p",
                 rawInputCount, GET_RAWINPUT_CODE_WPARAM(wParam), window);
         }
         ProcessMmIoRawMouseInput(reinterpret_cast<HRAWINPUT>(lParam));
@@ -201,7 +201,7 @@ void DumpRegisteredRawInputDevices()
     std::vector<RAWINPUTDEVICE> devices(count);
     if (count == 0)
     {
-        Log("No Raw Input registrations found.");
+        DebugLog("No Raw Input registrations found.");
         return;
     }
     UINT actual = count;
@@ -212,7 +212,7 @@ void DumpRegisteredRawInputDevices()
     }
     for (const auto& device : devices)
     {
-        Log("Raw Input registration: page=%04X usage=%04X flags=%08lX hwnd=%p",
+        DebugLog("Raw Input registration: page=%04X usage=%04X flags=%08lX hwnd=%p",
             device.usUsagePage, device.usUsage, device.dwFlags, device.hwndTarget);
     }
 }
