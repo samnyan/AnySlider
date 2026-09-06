@@ -201,7 +201,6 @@ mmio::InputSnapshot MmIoKeyboardMouseFrontend::Poll()
         return snapshot;
     }
 
-    const ScopedMmIoKeyboardMousePoll keyboardPoll;
     const auto now = std::chrono::steady_clock::now();
     const float deltaSeconds = has_last_poll_time_
         ? std::chrono::duration<float>(now - last_poll_time_).count()

@@ -267,18 +267,5 @@ void UpdateMmIoWindowHooks()
         return;
     }
 
-    Log("Window hook attached: focus=%s keyboard-mouse=%s",
-        windowHookConfig.keep_game_active_unfocused ? "true" : "false",
-        windowHookConfig.block_keyboard_mouse_input ? "true" : "false");
-}
-
-ScopedMmIoKeyboardMousePoll::ScopedMmIoKeyboardMousePoll()
-{
-    allowKeyboardFrontendPoll = true;
-}
-
-ScopedMmIoKeyboardMousePoll::~ScopedMmIoKeyboardMousePoll()
-{
-    allowKeyboardFrontendPoll = false;
 }
 }
