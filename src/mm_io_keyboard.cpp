@@ -1,17 +1,14 @@
 #include "pch.h"
 
 #include "mm_io_keyboard.h"
+#include "mm_io_raw_mouse.h"
 
 #include "mm_io_shared_memory.h"
 #include "mm_io_window_hooks.h"
 #include "anyslider_log.h"
 
 #include <algorithm>
-#include <atomic>
 #include <cmath>
-#include <cwctype>
-#include <mutex>
-#include <unordered_map>
 
 namespace anyslider
 {
@@ -37,90 +34,6 @@ float WrapContactPosition(float position, float startPosition, float length)
         length);
 }
 
-std::atomic<int64_t> pending_mouse_x{ 0 };
-std::atomic<int64_t> pending_mouse_y{ 0 };
-std::atomic<int64_t> pending_mouse_wheel{ 0 };
-std::mutex mouse_device_cache_mutex;
-std::unordered_map<HANDLE, bool> mouse_device_match_cache;
-MmIoMouseSliderConfig mouse_slider_config;
-
-bool ContainsCaseInsensitive(const std::wstring& value, const std::wstring& search)
-{
-    if (search.empty())
-    {
-        return true;
-    }
-    return std::search(
-        value.begin(), value.end(),
-        search.begin(), search.end(),
-        [](wchar_t left, wchar_t right)
-        {
-            return std::towlower(left) == std::towlower(right);
-        }) != value.end();
-}
-
-bool MatchesMouseSliderDevice(HANDLE device)
-{
-    if (!device)
-    {
-        static bool loggedNullDevice = false;
-        if (!loggedNullDevice)
-        {
-            loggedNullDevice = true;
-            DebugLog("Ignoring Raw mouse with null device handle.");
-        }
-        return false;
-    }
-    {
-        std::lock_guard lock(mouse_device_cache_mutex);
-        if (const auto it = mouse_device_match_cache.find(device); it != mouse_device_match_cache.end())
-        {
-            return it->second;
-        }
-    }
-
-    UINT length = 0;
-    if (GetRawInputDeviceInfoW(device, RIDI_DEVICENAME, nullptr, &length) == static_cast<UINT>(-1) || length == 0)
-    {
-        Log("Could not read Raw mouse device name: device=%p error=%lu", device, GetLastError());
-        return false;
-    }
-    std::wstring name(length, L'\0');
-    if (GetRawInputDeviceInfoW(device, RIDI_DEVICENAME, name.data(), &length) == static_cast<UINT>(-1))
-    {
-        Log("Could not read Raw mouse device name: device=%p error=%lu", device, GetLastError());
-        return false;
-    }
-    name.resize(std::wcslen(name.c_str()));
-    const bool matches = mouse_slider_config.device_filter.empty() ||
-        ContainsCaseInsensitive(name, mouse_slider_config.device_filter);
-    DebugLog("Raw mouse detected: device=%p name=%ls mouse-slider=%s",
-        device, name.c_str(), matches ? "yes" : "no");
-    {
-        std::lock_guard lock(mouse_device_cache_mutex);
-        mouse_device_match_cache.emplace(device, matches);
-    }
-    return matches;
-}
-
-MmIoRawMouseDelta ConsumeMmIoRawMouseDelta()
-{
-    return {
-        pending_mouse_x.exchange(0, std::memory_order_relaxed),
-        pending_mouse_y.exchange(0, std::memory_order_relaxed),
-        pending_mouse_wheel.exchange(0, std::memory_order_relaxed),
-    };
-}
-
-void ResetMmIoRawMouseInput()
-{
-    pending_mouse_x.store(0, std::memory_order_relaxed);
-    pending_mouse_y.store(0, std::memory_order_relaxed);
-    pending_mouse_wheel.store(0, std::memory_order_relaxed);
-    std::lock_guard lock(mouse_device_cache_mutex);
-    mouse_device_match_cache.clear();
-}
-
 int64_t SelectMouseAxis(const MmIoRawMouseDelta& delta, MmIoMouseAxis axis)
 {
     switch (axis)
@@ -131,51 +44,6 @@ int64_t SelectMouseAxis(const MmIoRawMouseDelta& delta, MmIoMouseAxis axis)
     default: return 0;
     }
 }
-}
-
-void ProcessMmIoRawMouseInput(HRAWINPUT rawInput)
-{
-    if (!mouse_slider_config.enabled || !rawInput)
-    {
-        return;
-    }
-    UINT size = sizeof(RAWINPUT);
-    RAWINPUT input{};
-    const UINT result = GetRawInputData(
-        rawInput, RID_INPUT, &input, &size, sizeof(RAWINPUTHEADER));
-    if (result == static_cast<UINT>(-1))
-    {
-        Log("GetRawInputData failed: error=%lu", GetLastError());
-        return;
-    }
-    if (input.header.dwType != RIM_TYPEMOUSE ||
-        !MatchesMouseSliderDevice(input.header.hDevice))
-    {
-        return;
-    }
-    const RAWMOUSE& mouse = input.data.mouse;
-    static uint32_t debugCount = 0;
-    if (debugCount++ < 100)
-    {
-        DebugLog("Raw mouse: device=%p flags=0x%04X dx=%ld dy=%ld buttons=0x%04X",
-            input.header.hDevice, mouse.usFlags, mouse.lLastX, mouse.lLastY, mouse.usButtonFlags);
-    }
-    if ((mouse.usFlags & MOUSE_MOVE_ABSOLUTE) != 0)
-    {
-        if (debugCount <= 100)
-        {
-            DebugLog("Ignoring absolute raw mouse: x=%ld y=%ld", mouse.lLastX, mouse.lLastY);
-        }
-    }
-    else
-    {
-        pending_mouse_x.fetch_add(mouse.lLastX, std::memory_order_relaxed);
-        pending_mouse_y.fetch_add(mouse.lLastY, std::memory_order_relaxed);
-    }
-    if ((mouse.usButtonFlags & RI_MOUSE_WHEEL) != 0)
-    {
-        pending_mouse_wheel.fetch_add(static_cast<SHORT>(mouse.usButtonData), std::memory_order_relaxed);
-    }
 }
 
 MmIoKeyboardBindings DefaultMmIoKeyboardBindings()
@@ -213,7 +81,6 @@ void MmIoKeyboardMouseFrontend::Initialize(
     bindings_ = bindings;
     mouse_slider_ = mouseSliderConfig;
     mouse_slider_enabled_ = enabled && mouseSliderConfig.enabled;
-    mouse_slider_config = mouseSliderConfig;
     last_poll_time_ = {};
     has_last_poll_time_ = false;
     ResetMmIoRawMouseInput();
@@ -231,6 +98,11 @@ bool MmIoKeyboardMouseFrontend::IsEnabled() const
 bool MmIoKeyboardMouseFrontend::IsMouseSliderEnabled() const
 {
     return mouse_slider_enabled_;
+}
+
+void MmIoKeyboardMouseFrontend::DisableMouseSlider()
+{
+    mouse_slider_enabled_ = false;
 }
 
 void MmIoKeyboardMouseFrontend::UpdateContact(

@@ -72,7 +72,6 @@ struct MmIoRawMouseDelta
 };
 
 MmIoKeyboardBindings DefaultMmIoKeyboardBindings();
-void ProcessMmIoRawMouseInput(HRAWINPUT rawInput);
 
 class MmIoKeyboardMouseFrontend
 {
@@ -84,6 +83,7 @@ public:
         const MmIoMouseSliderConfig& mouseSliderConfig);
     [[nodiscard]] bool IsEnabled() const;
     [[nodiscard]] bool IsMouseSliderEnabled() const;
+    void DisableMouseSlider();
     mmio::InputSnapshot Poll();
 
 private:
