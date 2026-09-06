@@ -1,7 +1,7 @@
 #include "pch.h"
 
 #include "mm_io_keyboard.h"
-#include "mm_io_raw_mouse.h"
+#include "mm_io_raw_input.h"
 
 #include "mm_io_shared_memory.h"
 #include "mm_io_window_hooks.h"
@@ -16,7 +16,17 @@ namespace
 {
 bool IsDown(int virtualKey)
 {
-    return (GetAsyncKeyState(virtualKey) & 0x8000) != 0;
+    return IsMmIoRawKeyboardDown(virtualKey);
+}
+
+bool WasPressed(int virtualKey)
+{
+    return ConsumeMmIoRawKeyboardPressed(virtualKey);
+}
+
+bool WasPressed(const MmIoKeyBinding& binding)
+{
+    return std::any_of(binding.begin(), binding.end(), [](int key) { return WasPressed(key); });
 }
 
 bool IsDown(const MmIoKeyBinding& binding)
@@ -259,7 +269,7 @@ mmio::InputSnapshot MmIoKeyboardMouseFrontend::Poll()
     snapshot.mode = static_cast<uint32_t>(mmio::Mode::ArcadeSlider);
     for (const Binding& binding : bindings)
     {
-        if (IsDown(*binding.keys))
+        if (IsDown(*binding.keys) || WasPressed(*binding.keys))
         {
             mmio::SetGameButton(snapshot.gamebtn, binding.action);
         }

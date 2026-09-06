@@ -1,10 +1,11 @@
 #include "pch.h"
 
-#include "mm_io_raw_mouse.h"
+#include "mm_io_raw_input.h"
 
 #include "anyslider_log.h"
 
 #include <algorithm>
+#include <array>
 #include <atomic>
 #include <cwctype>
 #include <mutex>
@@ -20,6 +21,8 @@ constexpr wchar_t kRawInputWindowClass[] = L"AnySliderRawInputWindow";
 std::atomic<int64_t> pending_mouse_x{ 0 };
 std::atomic<int64_t> pending_mouse_y{ 0 };
 std::atomic<int64_t> pending_mouse_wheel{ 0 };
+std::array<std::atomic_bool, 256> raw_keyboard_down{};
+std::array<std::atomic_bool, 256> raw_keyboard_pressed{};
 std::mutex mouse_device_cache_mutex;
 std::unordered_map<HANDLE, bool> mouse_device_match_cache;
 MmIoMouseSliderConfig mouse_slider_config;
@@ -80,19 +83,21 @@ bool MatchesMouseSliderDevice(HANDLE device)
     return matches;
 }
 
-bool RegisterMmIoRawMouse(HWND targetWindow)
+bool RegisterMmIoRawInput(HWND targetWindow)
 {
-    RAWINPUTDEVICE mouseDevice{};
-    mouseDevice.usUsagePage = 0x01;
-    mouseDevice.usUsage = 0x02;
-    mouseDevice.dwFlags = RIDEV_INPUTSINK | RIDEV_DEVNOTIFY;
-    mouseDevice.hwndTarget = targetWindow;
-    if (!RegisterRawInputDevices(&mouseDevice, 1, sizeof(mouseDevice)))
+    RAWINPUTDEVICE devices[2]{};
+    devices[0].usUsagePage = 0x01;
+    devices[0].usUsage = 0x02;
+    devices[0].dwFlags = RIDEV_INPUTSINK | RIDEV_DEVNOTIFY;
+    devices[0].hwndTarget = targetWindow;
+    devices[1] = devices[0];
+    devices[1].usUsage = 0x06;
+    if (!RegisterRawInputDevices(devices, 2, sizeof(RAWINPUTDEVICE)))
     {
         Log("Could not register Raw Input mouse: %lu", GetLastError());
         return false;
     }
-    Log("Raw Input receiver registered: hwnd=%p flags=%08lX", targetWindow, mouseDevice.dwFlags);
+    Log("Raw Input receiver registered: hwnd=%p flags=%08lX", targetWindow, devices[0].dwFlags);
     return true;
 }
 
@@ -102,7 +107,7 @@ void SignalRawInputReady(bool ready)
     SetEvent(raw_input_ready_event);
 }
 
-void ProcessMmIoRawMouseInput(HRAWINPUT rawInput)
+void ProcessMmIoRawInput(HRAWINPUT rawInput)
 {
     if (!raw_input_ready.load(std::memory_order_relaxed) || !rawInput)
     {
@@ -113,6 +118,20 @@ void ProcessMmIoRawMouseInput(HRAWINPUT rawInput)
     if (GetRawInputData(rawInput, RID_INPUT, &input, &size, sizeof(RAWINPUTHEADER)) == static_cast<UINT>(-1))
     {
         Log("GetRawInputData failed: error=%lu", GetLastError());
+        return;
+    }
+    if (input.header.dwType == RIM_TYPEKEYBOARD)
+    {
+        const auto& key = input.data.keyboard;
+        if (key.VKey < raw_keyboard_down.size())
+        {
+            const bool down = (key.Flags & RI_KEY_BREAK) == 0;
+            raw_keyboard_down[key.VKey].store(down, std::memory_order_relaxed);
+            if (down)
+            {
+                raw_keyboard_pressed[key.VKey].store(true, std::memory_order_relaxed);
+            }
+        }
         return;
     }
     if (input.header.dwType != RIM_TYPEMOUSE || !MatchesMouseSliderDevice(input.header.hDevice))
@@ -136,7 +155,7 @@ LRESULT CALLBACK RawInputWindowProc(HWND window, UINT message, WPARAM wParam, LP
     switch (message)
     {
     case WM_INPUT:
-        ProcessMmIoRawMouseInput(reinterpret_cast<HRAWINPUT>(lParam));
+        ProcessMmIoRawInput(reinterpret_cast<HRAWINPUT>(lParam));
         if (GET_RAWINPUT_CODE_WPARAM(wParam) == RIM_INPUT)
         {
             return DefWindowProcW(window, message, wParam, lParam);
@@ -177,7 +196,7 @@ DWORD WINAPI RawInputThreadProc(LPVOID)
         SignalRawInputReady(false);
         return 0;
     }
-    if (!RegisterMmIoRawMouse(raw_input_window))
+    if (!RegisterMmIoRawInput(raw_input_window))
     {
         SignalRawInputReady(false);
         return 0;
@@ -196,7 +215,7 @@ DWORD WINAPI RawInputThreadProc(LPVOID)
 }
 }
 
-bool InitializeMmIoRawMouse(const MmIoMouseSliderConfig& config)
+bool InitializeMmIoRawInput(const MmIoMouseSliderConfig& config)
 {
     if (!config.enabled)
     {
@@ -247,5 +266,22 @@ void ResetMmIoRawMouseInput()
     pending_mouse_wheel.store(0, std::memory_order_relaxed);
     std::lock_guard lock(mouse_device_cache_mutex);
     mouse_device_match_cache.clear();
+}
+
+bool InitializeMmIoRawKeyboard()
+{
+    MmIoMouseSliderConfig config;
+    config.enabled = true;
+    return InitializeMmIoRawInput(config);
+}
+
+bool IsMmIoRawKeyboardDown(int v)
+{
+    return v >= 0 && v < 256 && raw_keyboard_down[v].load(std::memory_order_relaxed);
+}
+
+bool ConsumeMmIoRawKeyboardPressed(int v)
+{
+    return v >= 0 && v < 256 && raw_keyboard_pressed[v].exchange(false, std::memory_order_relaxed);
 }
 }

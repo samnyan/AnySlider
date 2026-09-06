@@ -5,7 +5,7 @@
 #include "Dependencies/Signature.h"
 #include "anyslider_log.h"
 #include "mm_io_keyboard.h"
-#include "mm_io_raw_mouse.h"
+#include "mm_io_raw_input.h"
 #include "mm_io/shared_memory.h"
 #include "mm_io_shared_memory.h"
 
@@ -457,10 +457,12 @@ bool InitializeMmIoHooks(const MmIoConfig& config)
         config.keyboard_slider_cells_per_second,
         config.keyboard_bindings,
         config.mouse_slider);
-    if (config.keyboard_mouse_frontend && config.mouse_slider.enabled &&
-        !InitializeMmIoRawMouse(config.mouse_slider))
+    if (config.keyboard_mouse_frontend &&
+        !(config.mouse_slider.enabled
+            ? InitializeMmIoRawInput(config.mouse_slider)
+            : InitializeMmIoRawKeyboard()))
     {
-        Log("Mouse slider Raw Input receiver unavailable; disabling mouse slider.");
+        Log("Raw Input receiver unavailable; disabling keyboard/mouse frontend.");
         keyboardFrontend.DisableMouseSlider();
     }
     if (!mmIoConsumer.Initialize(
