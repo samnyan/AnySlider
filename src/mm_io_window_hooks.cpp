@@ -268,4 +268,20 @@ void UpdateMmIoWindowHooks()
     }
 
 }
+void ShutdownMmIoWindowHooks()
+{
+    if (originalWindowProcedure && gameWindow && IsWindow(gameWindow))
+        SetWindowLongPtrW(gameWindow, GWLP_WNDPROC, reinterpret_cast<LONG_PTR>(originalWindowProcedure));
+    originalWindowProcedure = nullptr;
+    gameWindow = nullptr;
+    LONG error = DetourTransactionBegin();
+    if (error == NO_ERROR) error = DetourUpdateThread(GetCurrentThread());
+    if (error == NO_ERROR && windowHookConfig.keep_game_active_unfocused)
+        error = DetourDetach(reinterpret_cast<void**>(&originalGetForegroundWindow), GetForegroundWindowHook);
+    if (error == NO_ERROR && windowHookConfig.block_keyboard_mouse_input)
+        error = DetourDetach(reinterpret_cast<void**>(&originalGetAsyncKeyState), GetAsyncKeyStateHook);
+    if (error == NO_ERROR) error = DetourTransactionCommit(); else DetourTransactionAbort();
+    if (error != NO_ERROR) Log("Could not remove window hooks: %ld", error);
+    windowHookConfig = {};
+}
 }

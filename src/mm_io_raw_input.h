@@ -7,6 +7,7 @@ namespace anyslider
 bool InitializeMmIoRawInput(
     const MmIoMouseSliderConfig& config,
     bool includeMouse);
+void ShutdownMmIoRawInput();
 MmIoRawMouseDelta ConsumeMmIoRawMouseDelta();
 void ResetMmIoRawMouseInput();
 bool InitializeMmIoRawKeyboard();

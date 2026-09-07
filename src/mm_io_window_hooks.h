@@ -6,5 +6,6 @@ namespace anyslider
 {
 bool InitializeMmIoWindowHooks(const MmIoConfig& config);
 void UpdateMmIoWindowHooks();
+void ShutdownMmIoWindowHooks();
 }
 

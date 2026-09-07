@@ -219,6 +219,22 @@ DWORD WINAPI RawInputThreadProc(LPVOID)
         TranslateMessage(&message);
         DispatchMessageW(&message);
     }
+    RAWINPUTDEVICE removeDevices[2]{};
+    removeDevices[0].usUsagePage = 0x01;
+    removeDevices[0].usUsage = 0x06;
+    removeDevices[0].dwFlags = RIDEV_REMOVE;
+    if (raw_input_include_mouse)
+    {
+        removeDevices[1] = removeDevices[0];
+        removeDevices[1].usUsage = 0x02;
+        RegisterRawInputDevices(removeDevices, 2, sizeof(RAWINPUTDEVICE));
+    }
+    else
+    {
+        RegisterRawInputDevices(removeDevices, 1, sizeof(RAWINPUTDEVICE));
+    }
+    DestroyWindow(raw_input_window);
+    raw_input_window = nullptr;
     raw_input_ready.store(false, std::memory_order_release);
     return 0;
 }
@@ -254,10 +270,39 @@ bool InitializeMmIoRawInput(const MmIoMouseSliderConfig& config, bool includeMou
     const DWORD waitResult = WaitForSingleObject(raw_input_ready_event, 5000);
     if (waitResult != WAIT_OBJECT_0 || !raw_input_ready.load(std::memory_order_acquire))
     {
-        Log("Raw Input receiver did not become ready.");
+        ShutdownMmIoRawInput();
         return false;
     }
     return true;
+}
+
+void ShutdownMmIoRawInput()
+{
+    HANDLE thread = raw_input_thread;
+    if (!thread)
+    {
+        return;
+    }
+    const DWORD threadId = GetThreadId(thread);
+    if (threadId != 0)
+    {
+        PostThreadMessageW(threadId, WM_QUIT, 0, 0);
+    }
+    WaitForSingleObject(thread, 5000);
+    CloseHandle(thread);
+    raw_input_thread = nullptr;
+    if (raw_input_ready_event)
+    {
+        CloseHandle(raw_input_ready_event);
+        raw_input_ready_event = nullptr;
+    }
+    raw_input_window = nullptr;
+    raw_input_ready.store(false, std::memory_order_release);
+    raw_input_include_mouse = false;
+    mouse_slider_config = {};
+    ResetMmIoRawMouseInput();
+    for (auto& key : raw_keyboard_down) key.store(false, std::memory_order_relaxed);
+    for (auto& key : raw_keyboard_pressed) key.store(false, std::memory_order_relaxed);
 }
 
 MmIoRawMouseDelta ConsumeMmIoRawMouseDelta()
