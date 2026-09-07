@@ -14,26 +14,23 @@ namespace anyslider
 {
 namespace
 {
-bool IsDown(int virtualKey)
+bool IsDown(const MmIoRawKeyboardSnapshot& snapshot, int virtualKey)
 {
-    return IsMmIoRawKeyboardDown(virtualKey);
+    return virtualKey >= 0 && virtualKey < static_cast<int>(snapshot.down.size()) &&
+        snapshot.down[virtualKey];
 }
 
-bool WasPressed(int virtualKey)
+bool WasPressed(const MmIoRawKeyboardSnapshot& snapshot, int virtualKey)
 {
-    return ConsumeMmIoRawKeyboardPressed(virtualKey);
+    return virtualKey >= 0 && virtualKey < static_cast<int>(snapshot.pressed.size()) &&
+        snapshot.pressed[virtualKey];
 }
 
-bool WasPressed(const MmIoKeyBinding& binding)
+bool IsDown(const MmIoRawKeyboardSnapshot& snapshot, const MmIoKeyBinding& binding)
 {
-    return std::any_of(binding.begin(), binding.end(), [](int key) { return WasPressed(key); });
-}
-
-bool IsDown(const MmIoKeyBinding& binding)
-{
-    return std::any_of(binding.begin(), binding.end(), [](int virtualKey)
+    return std::any_of(binding.begin(), binding.end(), [&](int key)
     {
-        return IsDown(virtualKey);
+        return IsDown(snapshot, key);
     });
 }
 
@@ -93,6 +90,7 @@ void MmIoKeyboardMouseFrontend::Initialize(
     mouse_slider_enabled_ = enabled && mouseSliderConfig.enabled;
     last_poll_time_ = {};
     has_last_poll_time_ = false;
+    logical_buttons_ = {};
     ResetMmIoRawMouseInput();
     left_contact_ = {};
     left_contact_.position = 7.5f;
@@ -117,6 +115,7 @@ void MmIoKeyboardMouseFrontend::DisableMouseSlider()
 
 void MmIoKeyboardMouseFrontend::UpdateContact(
     SliderContact& contact,
+    const MmIoRawKeyboardSnapshot& keyboard,
     const MmIoKeyBinding& leftBinding,
     const MmIoKeyBinding& rightBinding,
     float deltaSeconds,
@@ -124,8 +123,8 @@ void MmIoKeyboardMouseFrontend::UpdateContact(
     float endPosition,
     bool resetOnTap)
 {
-    const bool left = IsDown(leftBinding);
-    const bool right = IsDown(rightBinding);
+    const bool left = IsDown(keyboard, leftBinding);
+    const bool right = IsDown(keyboard, rightBinding);
     const float range = endPosition - startPosition;
 
     const bool leftTapped = left && !contact.left_down;
@@ -207,8 +206,10 @@ mmio::InputSnapshot MmIoKeyboardMouseFrontend::Poll()
         : 0.0f;
     last_poll_time_ = now;
     has_last_poll_time_ = true;
+    const auto keyboard = ConsumeMmIoRawKeyboardSnapshot();
     UpdateContact(
         left_contact_,
+        keyboard,
         bindings_.slider_1_left,
         bindings_.slider_1_right,
         deltaSeconds,
@@ -217,6 +218,7 @@ mmio::InputSnapshot MmIoKeyboardMouseFrontend::Poll()
         !mouse_slider_enabled_);
     UpdateContact(
         right_contact_,
+        keyboard,
         bindings_.slider_2_left,
         bindings_.slider_2_right,
         deltaSeconds,
@@ -266,9 +268,41 @@ mmio::InputSnapshot MmIoKeyboardMouseFrontend::Poll()
     };
 
     snapshot.mode = static_cast<uint32_t>(mmio::Mode::ArcadeSlider);
-    for (const Binding& binding : bindings)
+    for (size_t index = 0; index < std::size(bindings); ++index)
     {
-        if (IsDown(*binding.keys) || WasPressed(*binding.keys))
+        const Binding& binding = bindings[index];
+        auto& state = logical_buttons_[index];
+        int newest_pressed_key = -1;
+        for (const int key : *binding.keys)
+        {
+            if (WasPressed(keyboard, key))
+            {
+                newest_pressed_key = key;
+            }
+        }
+
+        if (newest_pressed_key >= 0 && newest_pressed_key != state.active_key)
+        {
+            // Transfer ownership and expose one UP poll so the game sees a new press edge.
+            state.active_key = newest_pressed_key;
+            state.retrigger = state.down;
+        }
+
+        const bool active_down = IsDown(keyboard, state.active_key);
+        if (state.retrigger)
+        {
+            state.retrigger = false;
+            state.down = false;
+        }
+        else
+        {
+            state.down = active_down;
+            if (!active_down)
+            {
+                state.active_key = -1;
+            }
+        }
+        if (state.down)
         {
             mmio::SetGameButton(snapshot.gamebtn, binding.action);
         }
@@ -276,10 +310,10 @@ mmio::InputSnapshot MmIoKeyboardMouseFrontend::Poll()
 
     const bool leftContactActive =
         left_contact_.mouse_active ||
-        IsDown(bindings_.slider_1_left) || IsDown(bindings_.slider_1_right);
+        IsDown(keyboard, bindings_.slider_1_left) || IsDown(keyboard, bindings_.slider_1_right);
     const bool rightContactActive =
         right_contact_.mouse_active ||
-        IsDown(bindings_.slider_2_left) || IsDown(bindings_.slider_2_right);
+        IsDown(keyboard, bindings_.slider_2_left) || IsDown(keyboard, bindings_.slider_2_right);
     if (leftContactActive)
     {
         const auto sensor = static_cast<unsigned int>(std::floor(left_contact_.position));
@@ -293,7 +327,7 @@ mmio::InputSnapshot MmIoKeyboardMouseFrontend::Poll()
 
     for (size_t sensor = 0; sensor < bindings_.slider_cells.size(); ++sensor)
     {
-        if (IsDown(bindings_.slider_cells[sensor]))
+        if (IsDown(keyboard, bindings_.slider_cells[sensor]))
         {
             snapshot.touch_cells[sensor] = 1;
         }

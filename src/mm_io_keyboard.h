@@ -10,6 +10,7 @@
 
 namespace anyslider
 {
+struct MmIoRawKeyboardSnapshot;
 using MmIoKeyBinding = std::vector<int>;
 
 struct MmIoKeyboardBindings
@@ -107,9 +108,18 @@ private:
     bool mouse_slider_enabled_ = false;
     SliderContact left_contact_{ 7.5f };
     SliderContact right_contact_{ 23.5f };
+    struct LogicalButtonState
+    {
+        int active_key = -1;
+        bool down = false;
+        bool retrigger = false;
+    };
+
+    std::array<LogicalButtonState, 19> logical_buttons_{};
 
     void UpdateContact(
         SliderContact& contact,
+        const MmIoRawKeyboardSnapshot& keyboard,
         const MmIoKeyBinding& leftBinding,
         const MmIoKeyBinding& rightBinding,
         float deltaSeconds,

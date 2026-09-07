@@ -333,13 +333,15 @@ bool InitializeMmIoRawKeyboard()
     return initialized;
 }
 
-bool IsMmIoRawKeyboardDown(int v)
+MmIoRawKeyboardSnapshot ConsumeMmIoRawKeyboardSnapshot()
 {
-    return v >= 0 && v < 256 && raw_keyboard_down[v].load(std::memory_order_relaxed);
+    MmIoRawKeyboardSnapshot snapshot;
+    for (size_t key = 0; key < snapshot.down.size(); ++key)
+    {
+        snapshot.down[key] = raw_keyboard_down[key].load(std::memory_order_relaxed);
+        snapshot.pressed[key] = raw_keyboard_pressed[key].exchange(false, std::memory_order_relaxed);
+    }
+    return snapshot;
 }
 
-bool ConsumeMmIoRawKeyboardPressed(int v)
-{
-    return v >= 0 && v < 256 && raw_keyboard_pressed[v].exchange(false, std::memory_order_relaxed);
-}
 }
