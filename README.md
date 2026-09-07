@@ -7,7 +7,16 @@ Based on version 1.03.
 
 ## V2 New Features
 
-Provides a native input API through hooks, supporting shared-memory input and optional keyboard/mouse frontends without relying on keyboard or gamepad emulation.
+Provides a native input API through hooks, enabling custom keyboard/mouse/gamepad input and bypassing the game's built-in input logic.
+
+Example use cases include:
+
+- Using a DualShock 4/DualSense touchpad as a slider
+- Using an arcade controller with two knobs, such as an SDVX controller
+- Simulating high-speed sliders in Arcade Controller mode
+- Using an external application for input through shared memory, such as a virtual arcade controller
+
+See the configuration examples in [CONFIG.md](CONFIG.md).
 
 ## How It Works (V1)
 
@@ -33,7 +42,7 @@ Set `vid_pids` to the source controller's VID:PID. `target_controller_type` can 
 For configuration examples, see [CONFIG.md](CONFIG.md).
 
 ```toml
-# Disabled by default when omitted.
+# Enable the core IO features. Disabled by default when omitted.
 io_enabled = true
 
 # Debug logging.
@@ -67,7 +76,7 @@ io_arcade_slider_emu_cells_per_second = 32.0
 # Built-in keyboard/mouse frontend. The game processes it as controller input.
 io_keyboard_mouse_frontend = false
 
-# Block the game's own keyboard/mouse input to avoid duplicate input with the built-in frontend.
+# Block the game's own keyboard/mouse input to avoid duplicate input.
 io_block_keyboard_mouse_input = false
 
 # Use mouse input as slider input, for example with an arcade controller that has two knobs.
@@ -133,3 +142,5 @@ You can also bind `io_key_slider_01` through `io_key_slider_32` directly to the 
 ## Building
 
 Build the `AnySlider.vcxproj` project.
+
+**Note: This project was developed with the assistance of AI.**

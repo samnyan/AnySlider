@@ -7,7 +7,16 @@
 
 ## V2 新功能
 
-通过 Hook 提供原生输入 API，支持共享内存输入和可选的键盘/鼠标前端，不依赖键盘或手柄模拟。
+通过 Hook 提供原生输入 API，实现自定义的键盘/鼠标/手柄输入，绕过游戏本体的输入逻辑。
+
+目前可实现的用途例子：
+
+- DualShock4/DualSense 手柄触摸板当作滑条使用
+- 使用两个旋钮的手台，如SDVX
+- 模拟街机控制器模式的高速滑条
+- 通过共享内存，使用外部应用输入（如虚拟手台）
+
+具体可以参考 [CONFIG.md](CONFIG_CN.md) 中的配置范例
 
 ## 工作原理（V1）
 
@@ -33,7 +42,7 @@ target_controller_type = 7
 配置例子请阅读 [CONFIG.md](CONFIG.md)
 
 ```toml
-# 缺少此项时默认为关闭。
+# 开启核心IO功能，缺少此项时默认为关闭。
 io_enabled = true
 
 # 调试用日志
@@ -65,7 +74,7 @@ io_arcade_slider_emu_cells_per_second = 32.0
 # 内置键盘/鼠标前端，游戏会将其作为 controller 输入处理。
 io_keyboard_mouse_frontend = false
 
-# 屏蔽游戏自身的键盘/鼠标输入，避免与内置前端产生重复输入。
+# 屏蔽游戏自身的键盘/鼠标输入，避免产生重复输入。
 io_block_keyboard_mouse_input = false
 
 # 使用鼠标输入来作为滑条使用，比如有两个旋钮的手台（必须开启内置键盘/鼠标前端）
@@ -129,3 +138,5 @@ io_key_slider_2_right = ["O"]
 ## 构建
 
 构建 `AnySlider.vcxproj` 项目即可。
+
+**Note: 本项目开发过程中使用到了AI的帮助.**

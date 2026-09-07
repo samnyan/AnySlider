@@ -44,6 +44,8 @@ jobs:
 
           $packageFiles = @(
             "config.toml",
+            "CONFIG.md",
+            "CONFIG_CN.md",
             "LICENSE",
             "README.md",
             "README_CN.md",
@@ -63,6 +65,8 @@ jobs:
           path: |
             artifact/AnySlider.dll
             artifact/config.toml
+            artifact/CONFIG.md
+            artifact/CONFIG_CN.md
             artifact/LICENSE
             artifact/README.md
             artifact/README_CN.md
