@@ -30,15 +30,18 @@ target_controller_type = 7
 
 ### V2 原生 IO
 
+配置例子请阅读 [CONFIG.md](CONFIG.md)
+
 ```toml
 # 缺少此项时默认为关闭。
 io_enabled = true
-io_shared_memory = "Local\\MMIO_SHARED_BUFFER"
-io_max_input_lease_ms = 500
 
 # 高级选项：屏蔽游戏内置输入，只由mod提供输入。
 # 默认关闭；开启后可能有未知问题。
 io_exclusive_controller_input = false
+
+# 让游戏不在前台时保持运行，不自动暂停。如果需要在本机运行虚拟手台会比较有用。
+io_keep_game_active_unfocused = false
 
 # 内置键盘/鼠标前端，游戏会将其作为 controller 输入处理。
 io_keyboard_mouse_frontend = false
@@ -49,8 +52,15 @@ io_block_keyboard_mouse_input = false
 # 键盘滑条模拟速度，单位为 cell/秒。
 io_keyboard_slider_cells_per_second = 32.0
 
-# 让游戏不在前台时保持运行，不自动暂停。如果需要在本机运行虚拟手台会比较有用。
-io_keep_game_active_unfocused = false
+# 使用鼠标输入来作为滑条使用，比如有两个旋钮的手台（必须开启内置键盘/鼠标前端）
+io_use_mouse_as_slider = false
+
+# 因为鼠标移动是相对量，只能以停止移动认为是停止触摸，这里设定的是停止鼠标移动后保持触摸滑条的时间。
+# 如果明明在移动但是出现断开，有可能是设备回报率过低，可以适当提高保持时常。
+io_mouse_slider_touch_hold_ms = 20
+
+# 指定鼠标设备的 VID:PID，不填写将会接收所有鼠标的数据。
+io_mouse_slider_device = "0E8F:1118"
 ```
 
 ### 按键绑定

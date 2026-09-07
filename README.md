@@ -30,6 +30,8 @@ Set `vid_pids` to the VID:PID of the source controller. `target_controller_type`
 
 ### V2 Native IO
 
+Config presets: [CONFIG.md](CONFIG.md)
+
 ```toml
 # Disabled by default when omitted.
 io_enabled = true
@@ -41,6 +43,10 @@ io_max_input_lease_ms = 500
 # unknown issues.
 io_exclusive_controller_input = false
 
+# Keep the game running instead of automatically pausing when it is not
+# the foreground window. Useful when running a virtual arcade controller locally.
+io_keep_game_active_unfocused = false
+
 # Built-in keyboard/mouse frontend. The game processes it as controller input.
 io_keyboard_mouse_frontend = false
 
@@ -51,9 +57,18 @@ io_block_keyboard_mouse_input = false
 # Keyboard slider emulation speed, in cells per second.
 io_keyboard_slider_cells_per_second = 32.0
 
-# Keep the game running instead of automatically pausing when it is not
-# the foreground window. Useful when running a virtual arcade controller locally.
-io_keep_game_active_unfocused = false
+# Use relative Raw Input mouse movement as two arcade sliders.
+# Requires io_keyboard_mouse_frontend = true.
+io_use_mouse_as_slider = false
+
+# Mouse movement is relative, so stopping movement is treated as releasing the touch.
+# Keep the simulated slider touch active for this many milliseconds after movement stops.
+# If touch is lost while moving, increase this value for devices with a low report rate.
+io_mouse_slider_touch_hold_ms = 20
+
+# Optional Raw Input mouse filter. VID:PID is accepted and is matched against
+# the corresponding VID_xxxx&PID_yyyy part of the device path.
+io_mouse_slider_device = "0E8F:1118"
 ```
 
 ### Key Bindings

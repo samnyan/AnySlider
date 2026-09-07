@@ -184,6 +184,29 @@ bool TryParseMouseAxis(const std::string& text, MmIoMouseAxis& axis)
     return false;
 }
 
+bool IsHexWord(std::string_view text)
+{
+    if (text.size() != 4)
+    {
+        return false;
+    }
+    unsigned int value = 0;
+    const auto [end, error] = std::from_chars(text.data(), text.data() + text.size(), value, 16);
+    return error == std::errc{} && end == text.data() + text.size();
+}
+
+std::string NormalizeMouseSliderDeviceFilter(const std::string& value)
+{
+    const std::string normalized = ToUpper(Trim(value));
+    if (normalized.size() == 9 && normalized[4] == ':' &&
+        IsHexWord(std::string_view(normalized).substr(0, 4)) &&
+        IsHexWord(std::string_view(normalized).substr(5, 4)))
+    {
+        return "VID_" + normalized.substr(0, 4) + "&PID_" + normalized.substr(5, 4);
+    }
+    return value;
+}
+
 float LoadMouseSensitivity(const toml::table& document, const char* key)
 {
     const float value = document[key].value_or(1.0f);
@@ -222,14 +245,15 @@ void LoadMouseSliderConfig(const toml::table& document, MmIoConfig& config)
         mouse.counts_per_cycle = 256.0f;
     }
     constexpr uint32_t kMaxMouseSliderTouchHoldMs = 5000;
-    mouse.touch_hold_ms = document["io_mouse_slider_touch_hold_ms"].value_or<uint32_t>(0);
+    mouse.touch_hold_ms = document["io_mouse_slider_touch_hold_ms"].value_or<uint32_t>(20);
     if (mouse.touch_hold_ms > kMaxMouseSliderTouchHoldMs)
     {
-        Log("Invalid io_mouse_slider_touch_hold_ms=%u; using 0.", mouse.touch_hold_ms);
+        Log("Invalid io_mouse_slider_touch_hold_ms=%u; using 20.", mouse.touch_hold_ms);
         mouse.touch_hold_ms = 0;
     }
     const std::string device = document["io_mouse_slider_device"].value_or(std::string{});
-    mouse.device_filter.assign(device.begin(), device.end());
+    const std::string device_filter = NormalizeMouseSliderDeviceFilter(device);
+    mouse.device_filter.assign(device_filter.begin(), device_filter.end());
     if (mouse.enabled && !config.keyboard_mouse_frontend)
     {
         Log("Mouse slider is enabled but io_keyboard_mouse_frontend is disabled; ignoring mouse slider input.");
