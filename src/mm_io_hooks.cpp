@@ -459,7 +459,7 @@ bool InitializeMmIoHooks(const MmIoConfig& config)
         config.mouse_slider);
     if (config.keyboard_mouse_frontend &&
         !(config.mouse_slider.enabled
-            ? InitializeMmIoRawInput(config.mouse_slider)
+            ? InitializeMmIoRawInput(config.mouse_slider, true)
             : InitializeMmIoRawKeyboard()))
     {
         Log("Raw Input receiver unavailable; disabling keyboard/mouse frontend.");

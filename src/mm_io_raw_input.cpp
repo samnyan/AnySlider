@@ -30,6 +30,7 @@ HANDLE raw_input_thread = nullptr;
 HANDLE raw_input_ready_event = nullptr;
 HWND raw_input_window = nullptr;
 std::atomic_bool raw_input_ready{ false };
+bool raw_input_include_mouse = false;
 
 bool ContainsCaseInsensitive(const std::wstring& value, const std::wstring& search)
 {
@@ -83,16 +84,22 @@ bool MatchesMouseSliderDevice(HANDLE device)
     return matches;
 }
 
-bool RegisterMmIoRawInput(HWND targetWindow)
+bool RegisterMmIoRawInput(HWND targetWindow, bool includeMouse)
 {
     RAWINPUTDEVICE devices[2]{};
     devices[0].usUsagePage = 0x01;
-    devices[0].usUsage = 0x02;
+    devices[0].usUsage = 0x06;
     devices[0].dwFlags = RIDEV_INPUTSINK | RIDEV_DEVNOTIFY;
     devices[0].hwndTarget = targetWindow;
-    devices[1] = devices[0];
-    devices[1].usUsage = 0x06;
-    if (!RegisterRawInputDevices(devices, 2, sizeof(RAWINPUTDEVICE)))
+    UINT deviceCount = 1;
+    if (includeMouse)
+    {
+        devices[0].usUsage = 0x02;
+        devices[1] = devices[0];
+        devices[1].usUsage = 0x06;
+        deviceCount = 2;
+    }
+    if (!RegisterRawInputDevices(devices, deviceCount, sizeof(RAWINPUTDEVICE)))
     {
         Log("Could not register Raw Input mouse: %lu", GetLastError());
         return false;
@@ -198,7 +205,7 @@ DWORD WINAPI RawInputThreadProc(LPVOID)
         SignalRawInputReady(false);
         return 0;
     }
-    if (!RegisterMmIoRawInput(raw_input_window))
+    if (!RegisterMmIoRawInput(raw_input_window, raw_input_include_mouse))
     {
         SignalRawInputReady(false);
         return 0;
@@ -217,13 +224,14 @@ DWORD WINAPI RawInputThreadProc(LPVOID)
 }
 }
 
-bool InitializeMmIoRawInput(const MmIoMouseSliderConfig& config)
+bool InitializeMmIoRawInput(const MmIoMouseSliderConfig& config, bool includeMouse)
 {
     if (!config.enabled)
     {
         return false;
     }
     mouse_slider_config = config;
+    raw_input_include_mouse = includeMouse;
     ResetMmIoRawMouseInput();
     if (raw_input_thread)
     {
@@ -274,7 +282,10 @@ bool InitializeMmIoRawKeyboard()
 {
     MmIoMouseSliderConfig config;
     config.enabled = true;
-    return InitializeMmIoRawInput(config);
+    const bool initialized = InitializeMmIoRawInput(config, false);
+    mouse_slider_config.enabled = false;
+    raw_input_include_mouse = false;
+    return initialized;
 }
 
 bool IsMmIoRawKeyboardDown(int v)
