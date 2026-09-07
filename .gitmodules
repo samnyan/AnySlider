@@ -1,0 +1,3 @@
+[submodule "Dependencies/JoyShockLibrary"]
+	path = Dependencies/JoyShockLibrary
+	url = https://github.com/JibbSmart/JoyShockLibrary.git
