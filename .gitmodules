@@ -1,3 +1,6 @@
 [submodule "Dependencies/JoyShockLibrary"]
 	path = Dependencies/JoyShockLibrary
 	url = https://github.com/JibbSmart/JoyShockLibrary.git
+[submodule "Dependencies/hidapi"]
+	path = Dependencies/hidapi
+	url = https://github.com/signal11/hidapi.git

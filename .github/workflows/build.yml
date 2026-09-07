@@ -15,6 +15,8 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          submodules: recursive
 
       - name: Setup MSBuild
         uses: microsoft/setup-msbuild@v2
@@ -26,7 +28,7 @@ jobs:
         shell: pwsh
         run: |
           msbuild AnySlider.vcxproj `
-            /m `
+            /m:1 `
             /p:Configuration=Release `
             /p:Platform=x64 `
             /p:OutDir="$env:GITHUB_WORKSPACE\artifact\\"
@@ -40,12 +42,15 @@ jobs:
             throw "Build succeeded but AnySlider.dll was not found at $dll"
           }
 
+          Copy-Item THIRD_PARTY_NOTICES.md (Join-Path $env:GITHUB_WORKSPACE "artifact\THIRD_PARTY_NOTICES.md")
           Get-Item $dll | Format-List Name, Length, LastWriteTime
 
       - name: Upload AnySlider.dll
         uses: actions/upload-artifact@v4
         with:
           name: AnySlider-${{ github.ref_name }}-${{ github.sha }}
-          path: artifact/AnySlider.dll
+          path: |
+            artifact/AnySlider.dll
+            artifact/THIRD_PARTY_NOTICES.md
           if-no-files-found: error
           retention-days: 30

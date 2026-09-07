@@ -34,11 +34,18 @@ bool IsDown(const MmIoRawKeyboardSnapshot& snapshot, const MmIoKeyBinding& bindi
     });
 }
 
-float WrapContactPosition(float position, float startPosition, float length)
+void DebugLogPressedKeys(
+    const MmIoRawKeyboardSnapshot& snapshot,
+    const MmIoKeyBinding& binding,
+    const char* name)
 {
-    return startPosition + std::fmod(
-        std::fmod(position - startPosition, length) + length,
-        length);
+    for (const int key : binding)
+    {
+        if (WasPressed(snapshot, key))
+        {
+            DebugLog("Keyboard press: action=%s vk=%d", name, key);
+        }
+    }
 }
 
 int64_t SelectMouseAxis(const MmIoRawMouseDelta& delta, MmIoMouseAxis axis)
@@ -93,9 +100,11 @@ void MmIoKeyboardMouseFrontend::Initialize(
     logical_buttons_ = {};
     ResetMmIoRawMouseInput();
     left_contact_ = {};
-    left_contact_.position = 7.5f;
+    left_contact_.movement.position = 7.5f;
     right_contact_ = {};
-    right_contact_.position = 23.5f;
+    right_contact_.movement.position = 23.5f;
+    debug_left_arcade_cell_ = -1;
+    debug_right_arcade_cell_ = -1;
 }
 
 bool MmIoKeyboardMouseFrontend::IsEnabled() const
@@ -125,26 +134,15 @@ void MmIoKeyboardMouseFrontend::UpdateContact(
 {
     const bool left = IsDown(keyboard, leftBinding);
     const bool right = IsDown(keyboard, rightBinding);
-    const float range = endPosition - startPosition;
-
-    const bool leftTapped = left && !contact.left_down;
-    const bool rightTapped = right && !contact.right_down;
-    contact.left_down = left;
-    contact.right_down = right;
-
-    if (resetOnTap && (leftTapped || rightTapped))
-    {
-        contact.position = startPosition + (range - 1.0f) * 0.5f;
-    }
-
-    if (left == right)
-    {
-        return;
-    }
-
-    const float direction = left ? -1.0f : 1.0f;
-    contact.position += direction * slider_cells_per_second_ * deltaSeconds;
-    contact.position = WrapContactPosition(contact.position, startPosition, range);
+    UpdateMmIoSliderContact(
+        contact.movement,
+        left,
+        right,
+        deltaSeconds,
+        slider_cells_per_second_,
+        resetOnTap,
+        startPosition,
+        endPosition);
 }
 
 void MmIoKeyboardMouseFrontend::UpdateMouseContact(
@@ -162,16 +160,17 @@ void MmIoKeyboardMouseFrontend::UpdateMouseContact(
     const float range = endPosition - startPosition;
     if (!contact.mouse_active)
     {
-        contact.position = startPosition + (range - 1.0f) * 0.5f;
-        DebugLog("Mouse slider activated at %.3f", contact.position);
+        contact.movement.position = startPosition + (range - 1.0f) * 0.5f;
+        DebugLog("Mouse slider activated at %.3f", contact.movement.position);
     }
     contact.mouse_active = true;
     contact.last_mouse_move_time = now;
     const float direction = binding.invert ? -1.0f : 1.0f;
-    contact.position += static_cast<float>(rawDelta) *
+    contact.movement.position += static_cast<float>(rawDelta) *
         (range / mouse_slider_.counts_per_cycle) *
         binding.sensitivity * direction;
-    contact.position = WrapContactPosition(contact.position, startPosition, range);
+    contact.movement.position = WrapMmIoSliderPosition(
+        contact.movement.position, startPosition, endPosition);
 }
 
 void MmIoKeyboardMouseFrontend::UpdateMouseContactRelease(
@@ -192,12 +191,13 @@ void MmIoKeyboardMouseFrontend::UpdateMouseContactRelease(
     }
 }
 
-mmio::InputSnapshot MmIoKeyboardMouseFrontend::Poll()
+MmIoKeyboardFrame MmIoKeyboardMouseFrontend::Poll()
 {
-    mmio::InputSnapshot snapshot{};
+    MmIoKeyboardFrame frame{};
+    mmio::InputSnapshot& snapshot = frame.snapshot;
     if (!enabled_)
     {
-        return snapshot;
+        return frame;
     }
 
     const auto now = std::chrono::steady_clock::now();
@@ -207,6 +207,10 @@ mmio::InputSnapshot MmIoKeyboardMouseFrontend::Poll()
     last_poll_time_ = now;
     has_last_poll_time_ = true;
     const auto keyboard = ConsumeMmIoRawKeyboardSnapshot();
+    DebugLogPressedKeys(keyboard, bindings_.slider_1_left, "Slider1Left");
+    DebugLogPressedKeys(keyboard, bindings_.slider_1_right, "Slider1Right");
+    DebugLogPressedKeys(keyboard, bindings_.slider_2_left, "Slider2Left");
+    DebugLogPressedKeys(keyboard, bindings_.slider_2_right, "Slider2Right");
     UpdateContact(
         left_contact_,
         keyboard,
@@ -216,6 +220,18 @@ mmio::InputSnapshot MmIoKeyboardMouseFrontend::Poll()
         0.0f,
         16.0f,
         !mouse_slider_enabled_);
+
+    frame.slider_direction =
+        GetMmIoSliderDirection(
+            IsDown(keyboard, bindings_.slider_1_left),
+            IsDown(keyboard, bindings_.slider_1_right),
+            mmio::SlideLeft1,
+            mmio::SlideRight1) |
+        GetMmIoSliderDirection(
+            IsDown(keyboard, bindings_.slider_2_left),
+            IsDown(keyboard, bindings_.slider_2_right),
+            mmio::SlideLeft2,
+            mmio::SlideRight2);
     UpdateContact(
         right_contact_,
         keyboard,
@@ -244,27 +260,28 @@ mmio::InputSnapshot MmIoKeyboardMouseFrontend::Poll()
     {
         const MmIoKeyBinding* keys;
         uint32_t action;
+        const char* name;
     };
     const Binding bindings[] = {
-        { &bindings_.test, mmio::Test },
-        { &bindings_.service, mmio::Service },
-        { &bindings_.pause, mmio::Pause },
-        { &bindings_.start, mmio::Start },
-        { &bindings_.dpad_up, mmio::DpadUp },
-        { &bindings_.dpad_down, mmio::DpadDown },
-        { &bindings_.dpad_left, mmio::DpadLeft },
-        { &bindings_.dpad_right, mmio::DpadRight },
-        { &bindings_.triangle, mmio::Triangle },
-        { &bindings_.square, mmio::Square },
-        { &bindings_.cross, mmio::Cross },
-        { &bindings_.circle, mmio::Circle },
-        { &bindings_.l1, mmio::L1 },
-        { &bindings_.r1, mmio::R1 },
-        { &bindings_.l2, mmio::L2 },
-        { &bindings_.r2, mmio::R2 },
-        { &bindings_.select, mmio::Select },
-        { &bindings_.l3, mmio::L3 },
-        { &bindings_.r3, mmio::R3 },
+        { &bindings_.test, mmio::Test, "Test" },
+        { &bindings_.service, mmio::Service, "Service" },
+        { &bindings_.pause, mmio::Pause, "Pause" },
+        { &bindings_.start, mmio::Start, "Start" },
+        { &bindings_.dpad_up, mmio::DpadUp, "DpadUp" },
+        { &bindings_.dpad_down, mmio::DpadDown, "DpadDown" },
+        { &bindings_.dpad_left, mmio::DpadLeft, "DpadLeft" },
+        { &bindings_.dpad_right, mmio::DpadRight, "DpadRight" },
+        { &bindings_.triangle, mmio::Triangle, "Triangle" },
+        { &bindings_.square, mmio::Square, "Square" },
+        { &bindings_.cross, mmio::Cross, "Cross" },
+        { &bindings_.circle, mmio::Circle, "Circle" },
+        { &bindings_.l1, mmio::L1, "L1" },
+        { &bindings_.r1, mmio::R1, "R1" },
+        { &bindings_.l2, mmio::L2, "L2" },
+        { &bindings_.r2, mmio::R2, "R2" },
+        { &bindings_.select, mmio::Select, "Select" },
+        { &bindings_.l3, mmio::L3, "L3" },
+        { &bindings_.r3, mmio::R3, "R3" },
     };
 
     snapshot.mode = static_cast<uint32_t>(mmio::Mode::ArcadeSlider);
@@ -278,6 +295,10 @@ mmio::InputSnapshot MmIoKeyboardMouseFrontend::Poll()
             if (WasPressed(keyboard, key))
             {
                 newest_pressed_key = key;
+                DebugLog(
+                    "Keyboard press: action=%s vk=%d",
+                    binding.name,
+                    key);
             }
         }
 
@@ -316,13 +337,47 @@ mmio::InputSnapshot MmIoKeyboardMouseFrontend::Poll()
         IsDown(keyboard, bindings_.slider_2_left) || IsDown(keyboard, bindings_.slider_2_right);
     if (leftContactActive)
     {
-        const auto sensor = static_cast<unsigned int>(std::floor(left_contact_.position));
+        const auto sensor = static_cast<unsigned int>(std::floor(left_contact_.movement.position));
         snapshot.touch_cells[sensor] = 1;
+        if (debug_left_arcade_cell_ != static_cast<int>(sensor))
+        {
+            DebugLog(
+                "Keyboard ArcadeSlider candidate: slider=1 cell=%u position=%.2f source=%s",
+                sensor,
+                left_contact_.movement.position,
+                left_contact_.mouse_active ? "mouse" : "keyboard");
+            debug_left_arcade_cell_ = static_cast<int>(sensor);
+        }
+        if (left_contact_.mouse_active)
+        {
+            frame.direct_touch_cells[sensor] = 1;
+        }
+    }
+    else
+    {
+        debug_left_arcade_cell_ = -1;
     }
     if (rightContactActive)
     {
-        const auto sensor = static_cast<unsigned int>(std::floor(right_contact_.position));
+        const auto sensor = static_cast<unsigned int>(std::floor(right_contact_.movement.position));
         snapshot.touch_cells[sensor] = 1;
+        if (debug_right_arcade_cell_ != static_cast<int>(sensor))
+        {
+            DebugLog(
+                "Keyboard ArcadeSlider candidate: slider=2 cell=%u position=%.2f source=%s",
+                sensor,
+                right_contact_.movement.position,
+                right_contact_.mouse_active ? "mouse" : "keyboard");
+            debug_right_arcade_cell_ = static_cast<int>(sensor);
+        }
+        if (right_contact_.mouse_active)
+        {
+            frame.direct_touch_cells[sensor] = 1;
+        }
+    }
+    else
+    {
+        debug_right_arcade_cell_ = -1;
     }
 
     for (size_t sensor = 0; sensor < bindings_.slider_cells.size(); ++sensor)
@@ -330,12 +385,24 @@ mmio::InputSnapshot MmIoKeyboardMouseFrontend::Poll()
         if (IsDown(keyboard, bindings_.slider_cells[sensor]))
         {
             snapshot.touch_cells[sensor] = 1;
+            frame.direct_touch_cells[sensor] = 1;
+            for (const int key : bindings_.slider_cells[sensor])
+            {
+                if (WasPressed(keyboard, key))
+                {
+                    DebugLog(
+                        "Keyboard press: action=SliderCell%02zu cell=%zu vk=%d",
+                        sensor + 1,
+                        sensor,
+                        key);
+                }
+            }
         }
     }
 
     snapshot.source_id = 0x4B424D4D; // MMBK
     snapshot.timestamp_us = MmIoNowMicroseconds();
     snapshot.lease_ms = 500;
-    return snapshot;
+    return frame;
 }
 }

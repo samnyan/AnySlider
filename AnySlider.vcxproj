@@ -45,7 +45,7 @@
   <PropertyGroup Label="UserMacros" />
   <ItemDefinitionGroup>
     <ClCompile>
-      <AdditionalIncludeDirectories>$(ProjectDir)include;$(ProjectDir);%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(ProjectDir)include;$(ProjectDir);$(ProjectDir)Dependencies\JoyShockLibrary\JoyShockLibrary;$(ProjectDir)Dependencies\hidapi\hidapi;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
@@ -61,7 +61,7 @@
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
-      <AdditionalDependencies>detours.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>detours.lib;setupapi.lib;%(AdditionalDependencies)</AdditionalDependencies>
       <AdditionalLibraryDirectories>$(ProjectDir)Dependencies\Detours\lib\x64;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
       <GenerateDebugInformation>true</GenerateDebugInformation>
       <EnableUAC>false</EnableUAC>
@@ -85,7 +85,7 @@
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
-      <AdditionalDependencies>detours.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>detours.lib;setupapi.lib;%(AdditionalDependencies)</AdditionalDependencies>
       <AdditionalLibraryDirectories>$(ProjectDir)Dependencies\Detours\lib\x64;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
       <GenerateDebugInformation>true</GenerateDebugInformation>
       <EnableUAC>false</EnableUAC>
@@ -101,9 +101,11 @@
     <ClInclude Include="src\anyslider_log.h" />
     <ClInclude Include="src\mm_io_config.h" />
     <ClInclude Include="src\mm_io_hooks.h" />
+    <ClInclude Include="src\mm_io_joyshock.h" />
     <ClInclude Include="src\mm_io_keyboard.h" />
     <ClInclude Include="src\mm_io_raw_input.h" />
     <ClInclude Include="src\mm_io_shared_memory.h" />
+    <ClInclude Include="src\mm_io_slider.h" />
     <ClInclude Include="src\mm_io_window_hooks.h" />
     <ClInclude Include="src\vid_pid_remap.h" />
   </ItemGroup>
@@ -112,11 +114,21 @@
     <ClCompile Include="mod.cpp" />
     <ClCompile Include="src\mm_io_config.cpp" />
     <ClCompile Include="src\mm_io_hooks.cpp" />
+    <ClCompile Include="src\mm_io_joyshock.cpp" />
     <ClCompile Include="src\mm_io_keyboard.cpp" />
     <ClCompile Include="src\mm_io_raw_input.cpp" />
     <ClCompile Include="src\mm_io_shared_memory.cpp" />
+    <ClCompile Include="src\mm_io_slider.cpp" />
     <ClCompile Include="src\mm_io_window_hooks.cpp" />
     <ClCompile Include="src\vid_pid_remap.cpp" />
+    <ClCompile Include="Dependencies\JoyShockLibrary\JoyShockLibrary\JoyShockLibrary.cpp">
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
+    </ClCompile>
+    <ClCompile Include="Dependencies\hidapi\windows\hid.c">
+      <CompileAs>CompileAsC</CompileAs>
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
+      <DisableSpecificWarnings>4267</DisableSpecificWarnings>
+    </ClCompile>
     <ClCompile Include="pch.cpp">
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Create</PrecompiledHeader>
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Release|x64'">Create</PrecompiledHeader>

@@ -13,6 +13,10 @@ io_keyboard_mouse_frontend = true
 # Disable original keyboard/mouse input, otherwise it will cause dual input.
 io_block_keyboard_mouse_input = true
 
+# Shared keyboard/controller slider behavior.
+io_slider_mode = "arcade"
+io_arcade_slider_emu_cells_per_second = 32.0
+
 # Enable to use mouse slider
 io_use_mouse_as_slider = true
 # Filter the device to only use FAUCETWO controller (VID:PID is also accepted)

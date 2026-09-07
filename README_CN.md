@@ -36,21 +36,37 @@ target_controller_type = 7
 # 缺少此项时默认为关闭。
 io_enabled = true
 
+# 调试用日志
+debug = false
+
 # 高级选项：屏蔽游戏内置输入，只由mod提供输入。
-# 默认关闭；开启后可能有未知问题。
-io_exclusive_controller_input = false
+io_exclusive_controller_input = true
 
 # 让游戏不在前台时保持运行，不自动暂停。如果需要在本机运行虚拟手台会比较有用。
-io_keep_game_active_unfocused = false
+io_keep_game_active_unfocused = true
+
+# ============================
+# 通用输入设置
+# ============================
+
+# 键盘LR、手柄左右滑条模式：
+# "arcade" 将键盘/手柄方向模拟在滑条上滑动（比如向右代表模拟从触摸区域左往右滑动）
+# "joystick" 将键盘/手柄方向映射到游戏内置的左右输入。
+io_slider_mode = "arcade"
+
+# Arcade 模式下滑条模拟速度，单位为 cell/秒。
+# 只对左右输入有效，对直接 32-cell 输入和 mouse_as_slider 模式无效
+io_arcade_slider_emu_cells_per_second = 32.0
+
+# ============================
+# 键鼠输入设置（使用AnySlider代替游戏内置键鼠输入）
+# ============================
 
 # 内置键盘/鼠标前端，游戏会将其作为 controller 输入处理。
 io_keyboard_mouse_frontend = false
 
 # 屏蔽游戏自身的键盘/鼠标输入，避免与内置前端产生重复输入。
 io_block_keyboard_mouse_input = false
-
-# 键盘滑条模拟速度，单位为 cell/秒。
-io_keyboard_slider_cells_per_second = 32.0
 
 # 使用鼠标输入来作为滑条使用，比如有两个旋钮的手台（必须开启内置键盘/鼠标前端）
 io_use_mouse_as_slider = false
@@ -61,6 +77,20 @@ io_mouse_slider_touch_hold_ms = 20
 
 # 指定鼠标设备的 VID:PID，不填写将会接收所有鼠标的数据。
 io_mouse_slider_device = "0E8F:1118"
+
+# ============================
+# 手柄输入设置（使用AnySlider代替游戏内置手柄输入）
+# ============================
+
+# 手柄前端，支持 DS4、DualSense、Pro Controller 和 Joy-Con。
+io_gamepad_frontend = false
+io_gamepad_device = "auto"
+# 使用DS4/DualSense的触摸板作为滑条输入
+io_gamepad_touchpad_slider = true
+# 触控板左右反向
+io_gamepad_touchpad_invert = false
+# 摇杆死区，范围为 0.1 到 0.95。
+io_gamepad_stick_slider_deadzone = 0.3
 ```
 
 ### 按键绑定

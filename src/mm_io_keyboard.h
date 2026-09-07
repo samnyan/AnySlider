@@ -1,6 +1,7 @@
 #pragma once
 
 #include "mm_io/shared_memory.h"
+#include "mm_io_slider.h"
 
 #include <array>
 #include <chrono>
@@ -12,6 +13,13 @@ namespace anyslider
 {
 struct MmIoRawKeyboardSnapshot;
 using MmIoKeyBinding = std::vector<int>;
+
+struct MmIoKeyboardFrame
+{
+    mmio::InputSnapshot snapshot{};
+    uint8_t direct_touch_cells[mmio::kTouchCellCount]{};
+    uint32_t slider_direction = 0;
+};
 
 struct MmIoKeyboardBindings
 {
@@ -85,16 +93,13 @@ public:
     [[nodiscard]] bool IsEnabled() const;
     [[nodiscard]] bool IsMouseSliderEnabled() const;
     void DisableMouseSlider();
-    mmio::InputSnapshot Poll();
+    MmIoKeyboardFrame Poll();
 
 private:
     struct SliderContact
     {
-        float position = 0.0f;
+        MmIoSliderContact movement;
         // Keyboard slider state.
-        bool left_down = false;
-        bool right_down = false;
-        // Mouse-slider simulated touch state.
         bool mouse_active = false;
         std::chrono::steady_clock::time_point last_mouse_move_time{};
     };
@@ -106,8 +111,10 @@ private:
     MmIoKeyboardBindings bindings_;
     MmIoMouseSliderConfig mouse_slider_;
     bool mouse_slider_enabled_ = false;
-    SliderContact left_contact_{ 7.5f };
-    SliderContact right_contact_{ 23.5f };
+    int debug_left_arcade_cell_ = -1;
+    int debug_right_arcade_cell_ = -1;
+    SliderContact left_contact_{};
+    SliderContact right_contact_{};
     struct LogicalButtonState
     {
         int active_key = -1;

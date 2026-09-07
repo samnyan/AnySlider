@@ -184,6 +184,22 @@ bool TryParseMouseAxis(const std::string& text, MmIoMouseAxis& axis)
     return false;
 }
 
+bool TryParseSliderMode(const std::string& text, MmIoSliderMode& mode)
+{
+    const std::string normalized = ToUpper(Trim(text));
+    if (normalized == "ARCADE")
+    {
+        mode = MmIoSliderMode::Arcade;
+        return true;
+    }
+    if (normalized == "JOYSTICK")
+    {
+        mode = MmIoSliderMode::Joystick;
+        return true;
+    }
+    return false;
+}
+
 bool IsHexWord(std::string_view text)
 {
     if (text.size() != 4)
@@ -260,6 +276,21 @@ void LoadMouseSliderConfig(const toml::table& document, MmIoConfig& config)
     }
 }
 
+void LoadGamepadConfig(const toml::table& document, MmIoConfig& config)
+{
+    auto& gamepad = config.gamepad;
+    gamepad.enabled = document["io_gamepad_frontend"].value_or(false);
+    gamepad.device = document["io_gamepad_device"].value_or(std::string("auto"));
+    gamepad.touchpad_slider = document["io_gamepad_touchpad_slider"].value_or(true);
+    gamepad.touchpad_invert = document["io_gamepad_touchpad_invert"].value_or(false);
+    gamepad.stick_slider_deadzone = document["io_gamepad_stick_slider_deadzone"].value_or(0.5f);
+    if (gamepad.stick_slider_deadzone < 0.1f || gamepad.stick_slider_deadzone > 0.95f)
+    {
+        Log("Invalid io_gamepad_stick_slider_deadzone; using 0.5.");
+        gamepad.stick_slider_deadzone = 0.5f;
+    }
+}
+
 void LoadKeyboardBindings(const toml::table& document, MmIoKeyboardBindings& bindings)
 {
     LoadKeyboardBinding(document, "io_key_test", bindings.test);
@@ -306,23 +337,30 @@ bool LoadMmIoConfig(MmIoConfig& config)
         config.keep_game_active_unfocused = document["io_keep_game_active_unfocused"].value_or(false);
         config.block_keyboard_mouse_input = document["io_block_keyboard_mouse_input"].value_or(false);
         config.exclusive_controller_input = document["io_exclusive_controller_input"].value_or(false);
+        const std::string sliderMode = document["io_slider_mode"].value_or(std::string("arcade"));
+        if (!TryParseSliderMode(sliderMode, config.slider_mode))
+        {
+            Log("Invalid io_slider_mode=%s; using arcade.", sliderMode.c_str());
+            config.slider_mode = MmIoSliderMode::Arcade;
+        }
         config.max_input_lease_ms = document["io_max_input_lease_ms"].value_or<uint64_t>(500);
         if (config.max_input_lease_ms == 0 || config.max_input_lease_ms > 10'000)
         {
             Log("Invalid io_max_input_lease_ms; using 500 ms.");
             config.max_input_lease_ms = 500;
         }
-        config.keyboard_slider_cells_per_second =
-            document["io_keyboard_slider_cells_per_second"].value_or(18.0f);
-        if (config.keyboard_slider_cells_per_second <= 0.0f ||
-            config.keyboard_slider_cells_per_second > 64.0f)
+        config.arcade_slider_emu_cells_per_second =
+            document["io_arcade_slider_emu_cells_per_second"].value_or(32.0f);
+        if (config.arcade_slider_emu_cells_per_second <= 0.0f ||
+            config.arcade_slider_emu_cells_per_second > 64.0f)
         {
-            Log("Invalid io_keyboard_slider_cells_per_second; using 18.");
-            config.keyboard_slider_cells_per_second = 18.0f;
+            Log("Invalid io_arcade_slider_emu_cells_per_second; using 32.");
+            config.arcade_slider_emu_cells_per_second = 32.0f;
         }
         config.keyboard_bindings = DefaultMmIoKeyboardBindings();
         LoadKeyboardBindings(document, config.keyboard_bindings);
         LoadMouseSliderConfig(document, config);
+        LoadGamepadConfig(document, config);
 
         const std::string mappingName = document["io_shared_memory"]
             .value_or(std::string("Local\\MMIO_SHARED_BUFFER"));

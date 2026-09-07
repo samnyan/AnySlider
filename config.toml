@@ -44,6 +44,17 @@ io_exclusive_controller_input = false
 # Useful when controlling the game from another application.
 io_keep_game_active_unfocused = false
 
+
+# ============================
+# Generic IO Settings
+# "arcade" emulates keyboard/controller directions as slider touch movement.
+# "joystick" maps keyboard/controller directions to the game's built-in left/right input.
+io_slider_mode = "arcade"
+
+# Emulated slider movement speed, measured in cells per second.
+# Does not affect direct 32 cells input.
+io_arcade_slider_emu_cells_per_second = 32.0
+
 # ============================
 # Keyboard&Mouse IO
 # ============================
@@ -54,8 +65,6 @@ io_keyboard_mouse_frontend = false
 # Stop the game's original keyboard/mouse controls to prevent duplicate input.
 # Only needed when the built-in keyboard/mouse controls are enabled.
 io_block_keyboard_mouse_input = false
-# Keyboard slider movement speed, measured in cells per second.
-io_keyboard_slider_cells_per_second = 32.0
 
 # Use mouse movement as two arcade slider controls.
 io_use_mouse_as_slider = false
@@ -76,6 +85,26 @@ io_mouse_slider_2_sensitivity = 1.0
 io_mouse_slider_touch_hold_ms = 20
 # Leave empty to use every mouse. Otherwise use a VID:PID such as "0E8F:1118" to filter single mouse device.
 io_mouse_slider_device = ""
+
+# ============================
+# Gamepad IO
+# ============================
+
+# JoyShockLibrary controller frontend. Disabled by default.
+io_gamepad_frontend = false
+# First version supports only automatic device selection.
+io_gamepad_device = "auto"
+# Use a DS4/DualSense touchpad as slider input.
+io_gamepad_touchpad_slider = true
+# Reverse touchpad left/right.
+io_gamepad_touchpad_invert = false
+# Stick deadzone, from 0.1 to 0.95.
+io_gamepad_stick_slider_deadzone = 0.3
+
+
+# ============================
+# Keyboard Keybinding
+# ============================
 
 # Each key setting can contain one key, comma-separated keys, or an array of keys.
 # Use [] to disable a setting. Examples: W, F1, Enter, Left, Space, MouseLeft,
