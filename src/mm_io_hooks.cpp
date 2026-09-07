@@ -40,6 +40,7 @@ MmIoKeyboardMouseFrontend keyboardFrontend;
 std::atomic_bool arcadeSliderActive = false;
 std::atomic_bool exclusiveControllerActive = false;
 bool installed = false;
+bool selectedDeviceHookInstalled = false;
 bool exclusiveControllerHooksInstalled = false;
 
 struct AcceptedInputFrame
@@ -52,6 +53,7 @@ struct AcceptedInputFrame
     mmio::Mode slider_mode = mmio::Mode::None;
     bool active = false;
     bool exclusive = false;
+    bool ui_activity_pending = false;
 };
 
 thread_local AcceptedInputFrame acceptedInputFrame;
@@ -104,6 +106,16 @@ bool HasActiveTouchCell(const uint8_t (&touchCells)[mmio::kTouchCellCount])
         }
     }
     return false;
+}
+
+bool HasPrimaryButtonTap(
+    const uint64_t (&tapped)[mmio::kGameButtonWordCount])
+{
+    return
+        mmio::IsGameButtonDown(tapped, mmio::Square) ||
+        mmio::IsGameButtonDown(tapped, mmio::Triangle) ||
+        mmio::IsGameButtonDown(tapped, mmio::Circle) ||
+        mmio::IsGameButtonDown(tapped, mmio::Cross);
 }
 
 void MergeTouchCells(
@@ -258,6 +270,8 @@ void RefreshAcceptedInputFrame()
         }
     }
 
+    acceptedInputFrame.ui_activity_pending = HasPrimaryButtonTap(
+        acceptedInputFrame.gamebtn_tapped);
     acceptedInputFrame.exclusive =
         (externalActive || keyboardActive) && mmIoConfig.exclusive_controller_input;
     arcadeSliderActive.store(
@@ -338,7 +352,11 @@ int64_t __fastcall MergeSelectedDeviceHook(
     uint32_t playerIndex,
     uint32_t* selectedDeviceType)
 {
-    if (acceptedInputFrame.exclusive)
+    const int64_t result = originalMergeSelectedDevice(
+        state, deviceState, playerIndex, selectedDeviceType);
+    const bool uiActivityPending = acceptedInputFrame.ui_activity_pending;
+    acceptedInputFrame.ui_activity_pending = false;
+    if (uiActivityPending)
     {
         static_cast<uint8_t*>(state)[InputSelectedDevicePresentOffset] = 1;
         if (selectedDeviceType)
@@ -347,7 +365,7 @@ int64_t __fastcall MergeSelectedDeviceHook(
         }
         return VirtualGamepadDeviceType;
     }
-    return originalMergeSelectedDevice(state, deviceState, playerIndex, selectedDeviceType);
+    return result;
 }
 
 bool __fastcall IsArcadeControllerEnabledHook()
@@ -381,15 +399,20 @@ bool InstallDetours()
         return false;
     }
 
+    originalMergeSelectedDevice = reinterpret_cast<MergeSelectedDevice>(
+        FindSignature(selectedMergeBytes, selectedMergeMask));
+    if (!originalMergeSelectedDevice)
+    {
+        Log("MMIO selected-device signature was not found.");
+        return false;
+    }
     if (mmIoConfig.exclusive_controller_input)
     {
         originalMergeConnectedDevice = reinterpret_cast<MergeConnectedDevice>(
             FindSignature(connectedMergeBytes, connectedMergeMask));
-        originalMergeSelectedDevice = reinterpret_cast<MergeSelectedDevice>(
-            FindSignature(selectedMergeBytes, selectedMergeMask));
-        if (!originalMergeConnectedDevice || !originalMergeSelectedDevice)
+        if (!originalMergeConnectedDevice)
         {
-            Log("MMIO exclusive controller signatures were not found.");
+            Log("MMIO exclusive controller signature was not found.");
             return false;
         }
     }
@@ -405,17 +428,17 @@ bool InstallDetours()
             reinterpret_cast<void**>(&originalMergeSliderSensorButtons),
             MergeSliderSensorButtonsHook);
     }
+    if (error == NO_ERROR)
+    {
+        error = DetourAttach(
+            reinterpret_cast<void**>(&originalMergeSelectedDevice),
+            MergeSelectedDeviceHook);
+    }
     if (error == NO_ERROR && mmIoConfig.exclusive_controller_input)
     {
         error = DetourAttach(
             reinterpret_cast<void**>(&originalMergeConnectedDevice),
             MergeConnectedDeviceHook);
-    }
-    if (error == NO_ERROR && mmIoConfig.exclusive_controller_input)
-    {
-        error = DetourAttach(
-            reinterpret_cast<void**>(&originalMergeSelectedDevice),
-            MergeSelectedDeviceHook);
     }
     if (error == NO_ERROR)
     {
@@ -439,6 +462,7 @@ bool InstallDetours()
     }
 
     installed = true;
+    selectedDeviceHookInstalled = true;
     exclusiveControllerHooksInstalled = mmIoConfig.exclusive_controller_input;
     return true;
 }
@@ -503,20 +527,24 @@ void ShutdownMmIoHooks()
     DetourDetach(
         reinterpret_cast<void**>(&originalMergeSliderSensorButtons),
         MergeSliderSensorButtonsHook);
+    if (selectedDeviceHookInstalled)
+    {
+        DetourDetach(
+            reinterpret_cast<void**>(&originalMergeSelectedDevice),
+            MergeSelectedDeviceHook);
+    }
     if (exclusiveControllerHooksInstalled)
     {
         DetourDetach(
             reinterpret_cast<void**>(&originalMergeConnectedDevice),
             MergeConnectedDeviceHook);
-        DetourDetach(
-            reinterpret_cast<void**>(&originalMergeSelectedDevice),
-            MergeSelectedDeviceHook);
-        exclusiveControllerHooksInstalled = false;
     }
     DetourDetach(
         reinterpret_cast<void**>(&originalIsArcadeControllerEnabled),
         IsArcadeControllerEnabledHook);
     DetourTransactionCommit();
+    selectedDeviceHookInstalled = false;
+    exclusiveControllerHooksInstalled = false;
     installed = false;
 }
 }
