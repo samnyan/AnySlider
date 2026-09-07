@@ -42,7 +42,18 @@ jobs:
             throw "Build succeeded but AnySlider.dll was not found at $dll"
           }
 
-          Copy-Item THIRD_PARTY_NOTICES.md (Join-Path $env:GITHUB_WORKSPACE "artifact\THIRD_PARTY_NOTICES.md")
+          $packageFiles = @(
+            "config.toml",
+            "LICENSE",
+            "README.md",
+            "README_CN.md",
+            "THIRD_PARTY_NOTICES.md"
+          )
+
+          foreach ($file in $packageFiles) {
+            Copy-Item $file (Join-Path $env:GITHUB_WORKSPACE "artifact\$file")
+          }
+
           Get-Item $dll | Format-List Name, Length, LastWriteTime
 
       - name: Upload AnySlider.dll
@@ -51,6 +62,10 @@ jobs:
           name: AnySlider-${{ github.ref_name }}-${{ github.sha }}
           path: |
             artifact/AnySlider.dll
+            artifact/config.toml
+            artifact/LICENSE
+            artifact/README.md
+            artifact/README_CN.md
             artifact/THIRD_PARTY_NOTICES.md
           if-no-files-found: error
           retention-days: 30
