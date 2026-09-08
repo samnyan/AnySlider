@@ -5,6 +5,10 @@
 让任何控制器支持 Project DIVA Mega Mix+ 的“街机控制器”模式。
 基于 1.03 版本开发。
 
+从 [Release](https://github.com/samnyan/AnySlider/releases) 下载最新版本，解压到 mods 目录，并按照说明进行配置。
+
+![CoverArt](docs/Cover.jpg)
+
 ## V2 新功能
 
 通过 Hook 提供原生输入 API，实现自定义的键盘/鼠标/手柄输入，绕过游戏本体的输入逻辑。
@@ -17,6 +21,11 @@
 - 通过共享内存，使用外部应用输入（如虚拟手台）
 
 具体可以参考 [CONFIG.md](CONFIG_CN.md) 中的配置范例
+
+### 注意事项
+
+- 这个Mod模拟的是手柄输入（即使你用的是键盘前端），所以如果游戏内的设置修改过手柄绑定，那么 config.toml 中也应该按照你的绑定来设置键位。
+- 如果使用Mod的输入，那么游戏设置中的“街机控制器”选项无论开关都会正常工作。但如果你用32区域的触摸，并且想通过滑条左右两侧来当作游戏界面的左右操作，那么就必须去设置里面打开“街机控制器”选项。
 
 ## 工作原理（V1）
 
@@ -138,5 +147,11 @@ io_key_slider_2_right = ["O"]
 ## 构建
 
 构建 `AnySlider.vcxproj` 项目即可。
+
+## 参考项目
+
+- [ReDIVA](https://github.com/korenkonder/ReDIVA) — 用于参考和理解游戏的输入处理逻辑。
+- [PD-Loader](https://github.com/PDModdingCommunity/PD-Loader) — 输入 Hook 的设计思路参考了 TLAC 的实现。
+- [JoyShockLibrary](https://github.com/jibbsmart/JoyShockLibrary) — 集成JoyShockLibrary以提供手柄输入支持。
 
 **Note: 本项目开发过程中使用到了AI的帮助.**

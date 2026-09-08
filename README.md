@@ -5,6 +5,8 @@
 Allows any controller to use Project DIVA Mega Mix+'s “Arcade Controller” mode.
 Based on version 1.03.
 
+![CoverArt](docs/Cover.jpg)
+
 ## V2 New Features
 
 Provides a native input API through hooks, enabling custom keyboard/mouse/gamepad input and bypassing the game's built-in input logic.
@@ -17,6 +19,11 @@ Example use cases include:
 - Using an external application for input through shared memory, such as a virtual arcade controller
 
 See the configuration examples in [CONFIG.md](CONFIG.md).
+
+### Notice
+
+- This mod emulates gamepad input (even for keyboard input). If you change the keybindings in game for the gamepad, the keybindings in config.toml should be set accordingly.
+- For any input front end, "Arcade Controller" option make no difference in gameplay. But if you use a 32 cells controller, "Arcade Controller" must be on to use the slider as Left and Right navigation.
 
 ## How It Works (V1)
 
@@ -142,5 +149,11 @@ You can also bind `io_key_slider_01` through `io_key_slider_32` directly to the 
 ## Building
 
 Build the `AnySlider.vcxproj` project.
+
+## References
+
+- [ReDIVA](https://github.com/korenkonder/ReDIVA) — Used as a reference for understanding input handling.
+- [PD-Loader](https://github.com/PDModdingCommunity/PD-Loader) — TLAC served as a reference for the input hooking approach.
+- [JoyShockLibrary](https://github.com/jibbsmart/JoyShockLibrary) — Integrated to provide gamepad input support.
 
 **Note: This project was developed with the assistance of AI.**
