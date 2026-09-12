@@ -27,15 +27,15 @@ __declspec(dllexport) void Init()
     initialized = true;
 
     anyslider::Log("Initializing...");
-    if (!anyslider::InitializeVidPidRemap())
-    {
-        anyslider::Log("VID/PID remapping is unavailable for this executable version.");
-    }
-
     anyslider::MmIoConfig mmIoConfig;
     if (!anyslider::LoadMmIoConfig(mmIoConfig))
     {
         return;
+    }
+    if (!anyslider::InitializeVidPidRemap(
+            mmIoConfig.enabled && mmIoConfig.exclusive_controller_input))
+    {
+        anyslider::Log("VID/PID remapping is unavailable for this executable version.");
     }
     if (!mmIoConfig.enabled)
     {

@@ -2,5 +2,5 @@
 
 namespace anyslider
 {
-bool InitializeVidPidRemap();
+bool InitializeVidPidRemap(bool suppressNativeDevices = false);
 }

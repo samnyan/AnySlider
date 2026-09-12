@@ -66,14 +66,30 @@ void MapJoyShockButtons(
     JOY_SHOCK_STATE state,
     uint64_t (&buttons)[mmio::kGameButtonWordCount])
 {
+    const bool nintendoLayout =
+        controllerType == JS_TYPE_PRO_CONTROLLER ||
+        controllerType == JS_TYPE_JOYCON_LEFT ||
+        controllerType == JS_TYPE_JOYCON_RIGHT;
     SetAction(buttons, mmio::DpadUp, (state.buttons & JSMASK_UP) != 0);
     SetAction(buttons, mmio::DpadDown, (state.buttons & JSMASK_DOWN) != 0);
     SetAction(buttons, mmio::DpadLeft, (state.buttons & JSMASK_LEFT) != 0);
     SetAction(buttons, mmio::DpadRight, (state.buttons & JSMASK_RIGHT) != 0);
-    SetAction(buttons, mmio::Square, (state.buttons & JSMASK_W) != 0);
-    SetAction(buttons, mmio::Triangle, (state.buttons & JSMASK_N) != 0);
-    SetAction(buttons, mmio::Circle, (state.buttons & JSMASK_E) != 0);
-    SetAction(buttons, mmio::Cross, (state.buttons & JSMASK_S) != 0);
+    if (nintendoLayout)
+    {
+        // JoyShock reports face buttons by position. Nintendo's face-button
+        // labels are rotated relative to the game's PS/Xbox action semantics.
+        SetAction(buttons, mmio::Square, (state.buttons & JSMASK_N) != 0);
+        SetAction(buttons, mmio::Triangle, (state.buttons & JSMASK_W) != 0);
+        SetAction(buttons, mmio::Circle, (state.buttons & JSMASK_S) != 0);
+        SetAction(buttons, mmio::Cross, (state.buttons & JSMASK_E) != 0);
+    }
+    else
+    {
+        SetAction(buttons, mmio::Square, (state.buttons & JSMASK_W) != 0);
+        SetAction(buttons, mmio::Triangle, (state.buttons & JSMASK_N) != 0);
+        SetAction(buttons, mmio::Circle, (state.buttons & JSMASK_E) != 0);
+        SetAction(buttons, mmio::Cross, (state.buttons & JSMASK_S) != 0);
+    }
     SetAction(buttons, mmio::L1, (state.buttons & JSMASK_L) != 0);
     SetAction(buttons, mmio::R1, (state.buttons & JSMASK_R) != 0);
     SetAction(buttons, mmio::L2, state.lTrigger >= 0.5f);
@@ -101,7 +117,9 @@ void MapJoyShockButtons(
         controllerType == JS_TYPE_JOYCON_LEFT ||
         controllerType == JS_TYPE_JOYCON_RIGHT)
     {
-        SetAction(buttons, mmio::Start, (state.buttons & JSMASK_PLUS) != 0);
+        // Native Type46 binding: Pro/Joy-Con + is action 160 (Pause),
+        // while - is action 15 (Select). Action 2 is arcade START.
+        SetAction(buttons, mmio::Pause, (state.buttons & JSMASK_PLUS) != 0);
         SetAction(buttons, mmio::Select, (state.buttons & JSMASK_MINUS) != 0);
     }
 }
@@ -188,6 +206,21 @@ uint32_t MapTouchCells(const MmIoGamepadConfig& config, TOUCH_STATE state)
         result |= 1u << TouchXToCell(state.t1X, config.touchpad_invert);
     }
     return result;
+}
+
+MmIoControllerType ControllerLayout(int controllerType)
+{
+    switch (controllerType)
+    {
+    case JS_TYPE_DS4:
+        return MmIoControllerType::DualShock4;
+    case JS_TYPE_PRO_CONTROLLER:
+    case JS_TYPE_JOYCON_LEFT:
+    case JS_TYPE_JOYCON_RIGHT:
+        return MmIoControllerType::Nintendo;
+    default:
+        return MmIoControllerType::DualSense;
+    }
 }
 
 void StoreFloat(std::atomic<uint32_t>& destination, float value)
@@ -292,6 +325,11 @@ MmIoJoyShockFrame MmIoJoyShockFrontend::Consume()
     }
 
     frame.connected = connected_.load(std::memory_order_acquire);
+    if (frame.connected)
+    {
+        frame.controller_type = ControllerLayout(
+            selectedType_.load(std::memory_order_acquire));
+    }
     const uint32_t currentTouch = currentTouchCells_.load(std::memory_order_acquire);
     const uint32_t observedTouch = pendingTouchCells_.exchange(0, std::memory_order_acq_rel);
     const uint32_t touchCells = currentTouch | observedTouch;

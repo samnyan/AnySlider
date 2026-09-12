@@ -13,6 +13,13 @@
 
 namespace anyslider
 {
+enum class MmIoControllerType : uint8_t
+{
+    DualSense,
+    DualShock4,
+    Nintendo,
+};
+
 struct MmIoJoyShockFrame
 {
     uint64_t gamebtn_tapped[mmio::kGameButtonWordCount]{};
@@ -21,6 +28,7 @@ struct MmIoJoyShockFrame
     uint8_t touch_cells[mmio::kTouchCellCount]{};
     uint8_t arcade_touch_cells[mmio::kTouchCellCount]{};
     uint32_t gamepad_slide = 0;
+    MmIoControllerType controller_type = MmIoControllerType::DualSense;
     bool connected = false;
     bool touchpad_active = false;
 };

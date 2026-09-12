@@ -24,6 +24,7 @@ using EnumerateAndRegisterDevice = void(__fastcall*)(int64_t, int64_t);
 EnumerateAndRegisterDevice originalEnumerateAndRegisterDevice = nullptr;
 std::vector<uint32_t> configuredSourceVidPids;
 int configuredTargetControllerType = 7;
+bool suppressNativeDevices = false;
 SRWLOCK loggedDevicesLock = SRWLOCK_INIT;
 std::vector<uint32_t> loggedDevices;
 
@@ -48,7 +49,7 @@ bool IsConfiguredSource(uint32_t vidPid)
         != configuredSourceVidPids.end();
 }
 
-void LogDeviceOnce(uint32_t sourceVidPid, bool remapped)
+void LogDeviceOnce(uint32_t sourceVidPid, bool remapped, bool suppressed)
 {
     AcquireSRWLockExclusive(&loggedDevicesLock);
     const bool alreadyLogged = std::find(loggedDevices.begin(), loggedDevices.end(), sourceVidPid)
@@ -63,6 +64,12 @@ void LogDeviceOnce(uint32_t sourceVidPid, bool remapped)
         return;
     }
 
+    if (suppressed)
+    {
+        Log("DirectInput VID:PID %04X:%04X suppressed (exclusive input)",
+            GetVid(sourceVidPid), GetPid(sourceVidPid));
+        return;
+    }
     if (remapped)
     {
         const uint32_t targetVidPid = GetTargetVidPid();
@@ -130,10 +137,15 @@ void __fastcall EnumerateAndRegisterDeviceHook(int64_t context, int64_t deviceIn
 
     auto& productGuidData1 = *reinterpret_cast<uint32_t*>(deviceInstance + ProductGuidData1Offset);
     const uint32_t sourceVidPid = productGuidData1;
+    if (suppressNativeDevices)
+    {
+        LogDeviceOnce(sourceVidPid, false, true);
+        return;
+    }
     // Registration creates the native controller binding metadata. Exclusive
     // input is enforced later in PollState and state aggregation.
     const bool remapped = IsConfiguredSource(sourceVidPid);
-    LogDeviceOnce(sourceVidPid, remapped);
+    LogDeviceOnce(sourceVidPid, remapped, false);
     if (remapped)
     {
         productGuidData1 = GetTargetVidPid();
@@ -174,8 +186,9 @@ bool InstallHook()
 }
 }
 
-bool InitializeVidPidRemap()
+bool InitializeVidPidRemap(bool suppressDevices)
 {
+    suppressNativeDevices = suppressDevices;
     if (!LoadConfig() || !InstallHook())
     {
         return false;
