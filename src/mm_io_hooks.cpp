@@ -58,6 +58,8 @@ thread_local uint32_t debugLastDirectionHeld = 0;
 thread_local bool debugInjectedSliderInitialized = false;
 thread_local mmio::Mode debugLastInjectedMode = mmio::Mode::None;
 thread_local uint32_t debugLastInjectedValue = 0;
+thread_local bool debugSelectedDeviceInitialized = false;
+thread_local bool debugLastVirtualSelectedDevice = false;
 
 struct AcceptedInputFrame
 {
@@ -560,13 +562,36 @@ int64_t __fastcall MergeSelectedDeviceHook(
     uint32_t playerIndex,
     uint32_t* selectedDeviceType)
 {
+    if (acceptedInputFrame.exclusive)
+    {
+        if (!debugSelectedDeviceInitialized || debugLastVirtualSelectedDevice != true)
+        {
+            DebugLog(
+                "Selected device: virtual gamepad type=%u source=mmio mode=%s",
+                VirtualGamepadDeviceType,
+                InputModeName(acceptedInputFrame.slider_mode));
+        }
+        debugSelectedDeviceInitialized = true;
+        debugLastVirtualSelectedDevice = true;
+        static_cast<uint8_t*>(state)[InputSelectedDevicePresentOffset] = 1;
+        if (selectedDeviceType)
+        {
+            *selectedDeviceType = VirtualGamepadDeviceType;
+        }
+        return VirtualGamepadDeviceType;
+    }
+
+    if (!debugSelectedDeviceInitialized || debugLastVirtualSelectedDevice != false)
+    {
+        DebugLog("Selected device: native source");
+    }
+    debugSelectedDeviceInitialized = true;
+    debugLastVirtualSelectedDevice = false;
     const int64_t result = originalMergeSelectedDevice(
         state, deviceState, playerIndex, selectedDeviceType);
     const bool uiActivityPending = acceptedInputFrame.ui_activity_pending;
     acceptedInputFrame.ui_activity_pending = false;
-    const bool gamepadDirectionActive =
-        acceptedInputFrame.slider_mode == mmio::Mode::GamepadDualStick;
-    if (uiActivityPending || gamepadDirectionActive)
+    if (uiActivityPending)
     {
         static_cast<uint8_t*>(state)[InputSelectedDevicePresentOffset] = 1;
         if (selectedDeviceType)
@@ -719,6 +744,7 @@ bool InitializeMmIoHooks(const MmIoConfig& config)
     mmIoConfig = config;
     debugSliderStateInitialized = false;
     debugInjectedSliderInitialized = false;
+    debugSelectedDeviceInitialized = false;
     sliderModeResolver.Initialize(config.slider_mode);
     joyShockFrontend.Initialize(
         config.gamepad,
@@ -775,6 +801,7 @@ void ShutdownMmIoHooks()
     acceptedInputFrame = {};
     debugSliderStateInitialized = false;
     debugInjectedSliderInitialized = false;
+    debugSelectedDeviceInitialized = false;
     joyShockFrontend.Shutdown();
     sliderModeResolver.Reset();
     mmIoConsumer.Shutdown();
