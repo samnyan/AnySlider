@@ -184,6 +184,69 @@ const char* InputModeName(mmio::Mode mode)
     }
 }
 
+const char* SharedMemoryModeName(uint32_t mode)
+{
+    switch (static_cast<mmio::Mode>(mode))
+    {
+    case mmio::Mode::ArcadeSlider: return "arcade";
+    case mmio::Mode::GamepadDualStick: return "dualstick";
+    default: return "none";
+    }
+}
+
+struct SharedMemoryButtonDebugEntry
+{
+    uint32_t action;
+    const char* name;
+};
+
+constexpr SharedMemoryButtonDebugEntry kSharedMemoryButtonDebugEntries[] = {
+    { mmio::Test, "Test" },
+    { mmio::Service, "Service" },
+    { mmio::Start, "Start" },
+    { mmio::DpadUp, "DpadUp" },
+    { mmio::DpadDown, "DpadDown" },
+    { mmio::DpadLeft, "DpadLeft" },
+    { mmio::DpadRight, "DpadRight" },
+    { mmio::Triangle, "Triangle" },
+    { mmio::Square, "Square" },
+    { mmio::Cross, "Cross" },
+    { mmio::Circle, "Circle" },
+    { mmio::L1, "L1" },
+    { mmio::R1, "R1" },
+    { mmio::L2, "L2" },
+    { mmio::R2, "R2" },
+    { mmio::Select, "Select" },
+    { mmio::L3, "L3" },
+    { mmio::R3, "R3" },
+    { mmio::Pause, "Pause" },
+};
+
+void DebugLogSharedMemoryButtons(const MmIoConsumer::InputFrame& frame)
+{
+    for (const SharedMemoryButtonDebugEntry& entry : kSharedMemoryButtonDebugEntries)
+    {
+        if (mmio::IsGameButtonDown(frame.gamebtn_tapped, entry.action))
+        {
+            DebugLog(
+                "Shared memory button: mode=%s source=0x%08X action=%s(%u) down",
+                SharedMemoryModeName(frame.snapshot.mode),
+                frame.snapshot.source_id,
+                entry.name,
+                entry.action);
+        }
+        if (mmio::IsGameButtonDown(frame.gamebtn_released, entry.action))
+        {
+            DebugLog(
+                "Shared memory button: mode=%s source=0x%08X action=%s(%u) up",
+                SharedMemoryModeName(frame.snapshot.mode),
+                frame.snapshot.source_id,
+                entry.name,
+                entry.action);
+        }
+    }
+}
+
 void RefreshAcceptedInputFrame()
 {
     MmIoConsumer::InputFrame externalFrame{};
@@ -208,6 +271,10 @@ void RefreshAcceptedInputFrame()
     uint64_t providerHeld[mmio::kGameButtonWordCount]{};
     if (externalFrameAvailable)
     {
+        if (IsDebugLoggingEnabled())
+        {
+            DebugLogSharedMemoryButtons(externalFrame);
+        }
         MergeGameButtons(
             acceptedInputFrame.gamebtn_tapped,
             externalFrame.gamebtn_tapped);
