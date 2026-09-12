@@ -564,7 +564,9 @@ int64_t __fastcall MergeSelectedDeviceHook(
         state, deviceState, playerIndex, selectedDeviceType);
     const bool uiActivityPending = acceptedInputFrame.ui_activity_pending;
     acceptedInputFrame.ui_activity_pending = false;
-    if (uiActivityPending)
+    const bool gamepadDirectionActive =
+        acceptedInputFrame.slider_mode == mmio::Mode::GamepadDualStick;
+    if (uiActivityPending || gamepadDirectionActive)
     {
         static_cast<uint8_t*>(state)[InputSelectedDevicePresentOffset] = 1;
         if (selectedDeviceType)
