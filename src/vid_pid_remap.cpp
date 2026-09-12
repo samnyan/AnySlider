@@ -7,6 +7,7 @@
 #include "anyslider_log.h"
 
 #include <algorithm>
+#include <atomic>
 #include <cstdint>
 #include <string>
 #include <vector>
@@ -22,6 +23,7 @@ constexpr uint16_t HoriFutureToneProductId = 0x013C;
 
 using EnumerateAndRegisterDevice = void(__fastcall*)(int64_t, int64_t);
 EnumerateAndRegisterDevice originalEnumerateAndRegisterDevice = nullptr;
+std::atomic_bool suppressDirectInputDevices = false;
 std::vector<uint32_t> configuredSourceVidPids;
 int configuredTargetControllerType = 7;
 SRWLOCK loggedDevicesLock = SRWLOCK_INIT;
@@ -72,6 +74,23 @@ void LogDeviceOnce(uint32_t sourceVidPid, bool remapped)
         return;
     }
     Log("DirectInput VID:PID %04X:%04X unchanged", GetVid(sourceVidPid), GetPid(sourceVidPid));
+}
+
+void LogSuppressedDeviceOnce(uint32_t sourceVidPid)
+{
+    AcquireSRWLockExclusive(&loggedDevicesLock);
+    const bool alreadyLogged = std::find(loggedDevices.begin(), loggedDevices.end(), sourceVidPid)
+        != loggedDevices.end();
+    if (!alreadyLogged)
+    {
+        loggedDevices.push_back(sourceVidPid);
+    }
+    ReleaseSRWLockExclusive(&loggedDevicesLock);
+    if (!alreadyLogged)
+    {
+        Log("DirectInput VID:PID %04X:%04X suppressed (exclusive input)",
+            GetVid(sourceVidPid), GetPid(sourceVidPid));
+    }
 }
 
 bool LoadConfig()
@@ -130,6 +149,12 @@ void __fastcall EnumerateAndRegisterDeviceHook(int64_t context, int64_t deviceIn
 
     auto& productGuidData1 = *reinterpret_cast<uint32_t*>(deviceInstance + ProductGuidData1Offset);
     const uint32_t sourceVidPid = productGuidData1;
+    if (suppressDirectInputDevices.load(std::memory_order_relaxed))
+    {
+        LogSuppressedDeviceOnce(sourceVidPid);
+        return;
+    }
+
     const bool remapped = IsConfiguredSource(sourceVidPid);
     LogDeviceOnce(sourceVidPid, remapped);
     if (remapped)
@@ -170,6 +195,11 @@ bool InstallHook()
     }
     return true;
 }
+}
+
+void SetDirectInputDeviceSuppression(bool suppressed)
+{
+    suppressDirectInputDevices.store(suppressed, std::memory_order_relaxed);
 }
 
 bool InitializeVidPidRemap()

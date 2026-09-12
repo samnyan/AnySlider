@@ -37,6 +37,8 @@ __declspec(dllexport) void Init()
     {
         return;
     }
+    anyslider::SetDirectInputDeviceSuppression(
+        mmIoConfig.enabled && mmIoConfig.exclusive_controller_input);
     if (!mmIoConfig.enabled)
     {
         anyslider::Log("Native IO disabled by io_enabled=false.");

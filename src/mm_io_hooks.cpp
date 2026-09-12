@@ -28,11 +28,15 @@ constexpr uint32_t VirtualGamepadDeviceType = 7;
 using MergeSliderSensorButtons = int64_t(__fastcall*)(void* state, void* sensorState);
 using MergeConnectedDevice = int64_t(__fastcall*)(void* state, void* deviceState, uint32_t playerIndex);
 using MergeSelectedDevice = int64_t(__fastcall*)(void* state, void* deviceState, uint32_t playerIndex, uint32_t* selectedDeviceType);
+using DirectInputDevicePollState = char(__fastcall*)(void* device, void* deviceState);
+using ResetInputState = int64_t(__fastcall*)(void* state);
 using IsArcadeControllerEnabled = bool(__fastcall*)();
 
 MergeSliderSensorButtons originalMergeSliderSensorButtons = nullptr;
 MergeConnectedDevice originalMergeConnectedDevice = nullptr;
 MergeSelectedDevice originalMergeSelectedDevice = nullptr;
+DirectInputDevicePollState originalDirectInputDevicePollState = nullptr;
+ResetInputState resetInputState = nullptr;
 IsArcadeControllerEnabled originalIsArcadeControllerEnabled = nullptr;
 
 MmIoConfig mmIoConfig;
@@ -45,6 +49,7 @@ std::atomic_bool exclusiveControllerActive = false;
 bool installed = false;
 bool selectedDeviceHookInstalled = false;
 bool exclusiveControllerHooksInstalled = false;
+bool directInputHooksInstalled = false;
 bool arcadeControllerHookInstalled = false;
 thread_local bool debugSliderStateInitialized = false;
 thread_local MmIoSliderMode debugLastSliderMode = MmIoSliderMode::Arcade;
@@ -527,11 +532,26 @@ int64_t __fastcall MergeSliderSensorButtonsHook(void* state, void* sensorState)
 
 int64_t __fastcall MergeConnectedDeviceHook(void* state, void* deviceState, uint32_t playerIndex)
 {
-    if (acceptedInputFrame.exclusive)
+    if (mmIoConfig.exclusive_controller_input)
     {
         return 0;
     }
     return originalMergeConnectedDevice(state, deviceState, playerIndex);
+}
+
+char __fastcall DirectInputDevicePollStateHook(void* device, void* deviceState)
+{
+    if (!mmIoConfig.exclusive_controller_input)
+    {
+        return originalDirectInputDevicePollState(device, deviceState);
+    }
+
+    if (deviceState && resetInputState)
+    {
+        // PollState normally performs this reset before reading the physical device.
+        resetInputState(static_cast<uint8_t*>(deviceState) + 0x20);
+    }
+    return 0;
 }
 
 int64_t __fastcall MergeSelectedDeviceHook(
@@ -570,6 +590,12 @@ bool InstallDetours()
     constexpr char connectedMergeBytes[] =
         "\x40\x53\x48\x83\xEC\x20\x4C\x8B\xDA\x4C\x8B\xD1";
     constexpr char connectedMergeMask[] = "xxxxxxxxxxxx";
+    constexpr char directInputPollBytes[] =
+        "\x48\x8B\xC4\x55\x56\x57\x41\x56\x41\x57\x48\x8D\xA8\x00\x00\x00\x00\x48\x81\xEC\xB0\x01\x00\x00";
+    constexpr char directInputPollMask[] = "xxxxxxxxxxxxx????xxxxxxx";
+    constexpr char resetInputStateBytes[] =
+        "\x33\xD2\x33\xC0\x0F\x57\xC0\x0F\x11\x01\x0F\x11\x41\x10\x0F\x11\x41\x20\x0F\x11\x41\x30\x48\x89\x41\x40";
+    constexpr char resetInputStateMask[] = "xxxxxxxxxxxxxxxxxxxxxxxxxx";
     constexpr char selectedMergeBytes[] =
         "\x48\x89\x5C\x24\x00\x48\x89\x74\x24\x00\x48\x89\x7C\x24\x00\x41\x56\x48\x83\xEC\x20\x48\x8B\xFA";
     constexpr char selectedMergeMask[] = "xxxx?xxxx?xxxx?xxxxxxxxx";
@@ -609,9 +635,15 @@ bool InstallDetours()
     {
         originalMergeConnectedDevice = reinterpret_cast<MergeConnectedDevice>(
             FindSignature(connectedMergeBytes, connectedMergeMask));
-        if (!originalMergeConnectedDevice)
+        originalDirectInputDevicePollState = reinterpret_cast<DirectInputDevicePollState>(
+            FindSignature(directInputPollBytes, directInputPollMask));
+        resetInputState = reinterpret_cast<ResetInputState>(
+            FindSignature(resetInputStateBytes, resetInputStateMask));
+        if (!originalMergeConnectedDevice ||
+            !originalDirectInputDevicePollState ||
+            !resetInputState)
         {
-            Log("MMIO exclusive controller signature was not found.");
+            Log("MMIO exclusive controller signatures were not found.");
             return false;
         }
     }
@@ -639,6 +671,12 @@ bool InstallDetours()
             reinterpret_cast<void**>(&originalMergeConnectedDevice),
             MergeConnectedDeviceHook);
     }
+    if (error == NO_ERROR && mmIoConfig.exclusive_controller_input)
+    {
+        error = DetourAttach(
+            reinterpret_cast<void**>(&originalDirectInputDevicePollState),
+            DirectInputDevicePollStateHook);
+    }
     if (error == NO_ERROR && installArcadeControllerHook)
     {
         error = DetourAttach(
@@ -664,6 +702,7 @@ bool InstallDetours()
     selectedDeviceHookInstalled = installSelectedDeviceHook;
     arcadeControllerHookInstalled = installArcadeControllerHook;
     exclusiveControllerHooksInstalled = mmIoConfig.exclusive_controller_input;
+    directInputHooksInstalled = mmIoConfig.exclusive_controller_input;
     return true;
 }
 }
@@ -714,7 +753,7 @@ bool InitializeMmIoHooks(const MmIoConfig& config)
         return false;
     }
 
-    Log("MMIO backend ready: mapping=%ls lease=%llu ms exclusive=%s keyboard-mouse=%s mouse-slider=%s gamepad=%s selected-device-hook=%s arcade-query-hook=%s",
+    Log("MMIO backend ready: mapping=%ls lease=%llu ms exclusive=%s keyboard-mouse=%s mouse-slider=%s gamepad=%s selected-device-hook=%s directinput-hooks=%s arcade-query-hook=%s",
         config.shared_memory_name.c_str(),
         config.max_input_lease_ms,
         config.exclusive_controller_input ? "true" : "false",
@@ -722,6 +761,7 @@ bool InitializeMmIoHooks(const MmIoConfig& config)
         keyboardFrontend.IsMouseSliderEnabled() ? "true" : "false",
         joyShockFrontend.IsEnabled() ? "true" : "false",
         selectedDeviceHookInstalled ? "true" : "false",
+        directInputHooksInstalled ? "true" : "false",
         arcadeControllerHookInstalled ? "true" : "false");
     return true;
 }
@@ -758,6 +798,12 @@ void ShutdownMmIoHooks()
             reinterpret_cast<void**>(&originalMergeConnectedDevice),
             MergeConnectedDeviceHook);
     }
+    if (directInputHooksInstalled)
+    {
+        DetourDetach(
+            reinterpret_cast<void**>(&originalDirectInputDevicePollState),
+            DirectInputDevicePollStateHook);
+    }
     if (arcadeControllerHookInstalled)
     {
         DetourDetach(
@@ -767,6 +813,7 @@ void ShutdownMmIoHooks()
     DetourTransactionCommit();
     selectedDeviceHookInstalled = false;
     exclusiveControllerHooksInstalled = false;
+    directInputHooksInstalled = false;
     arcadeControllerHookInstalled = false;
     installed = false;
 }
