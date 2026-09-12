@@ -687,7 +687,8 @@ bool InitializeMmIoHooks(const MmIoConfig& config)
         config.keyboard_mouse_frontend,
         config.arcade_slider_emu_cells_per_second,
         config.keyboard_bindings,
-        config.mouse_slider);
+        config.mouse_slider,
+        config.slider_mode);
     if (config.keyboard_mouse_frontend &&
         !(config.mouse_slider.enabled
             ? InitializeMmIoRawInput(config.mouse_slider, true)

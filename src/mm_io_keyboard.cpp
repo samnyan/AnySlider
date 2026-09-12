@@ -88,12 +88,14 @@ void MmIoKeyboardMouseFrontend::Initialize(
     bool enabled,
     float sliderCellsPerSecond,
     const MmIoKeyboardBindings& bindings,
-    const MmIoMouseSliderConfig& mouseSliderConfig)
+    const MmIoMouseSliderConfig& mouseSliderConfig,
+    MmIoSliderMode sliderMode)
 {
     enabled_ = enabled;
     slider_cells_per_second_ = sliderCellsPerSecond;
     bindings_ = bindings;
     mouse_slider_ = mouseSliderConfig;
+    slider_mode_ = sliderMode;
     mouse_slider_enabled_ = enabled && mouseSliderConfig.enabled;
     last_poll_time_ = {};
     has_last_poll_time_ = false;
@@ -211,15 +213,19 @@ MmIoKeyboardFrame MmIoKeyboardMouseFrontend::Poll()
     DebugLogPressedKeys(keyboard, bindings_.slider_1_right, "Slider1Right");
     DebugLogPressedKeys(keyboard, bindings_.slider_2_left, "Slider2Left");
     DebugLogPressedKeys(keyboard, bindings_.slider_2_right, "Slider2Right");
-    UpdateContact(
-        left_contact_,
-        keyboard,
-        bindings_.slider_1_left,
-        bindings_.slider_1_right,
-        deltaSeconds,
-        0.0f,
-        16.0f,
-        !mouse_slider_enabled_);
+    const bool calculateKeyboardSlider = slider_mode_ == MmIoSliderMode::Arcade;
+    if (calculateKeyboardSlider)
+    {
+        UpdateContact(
+            left_contact_,
+            keyboard,
+            bindings_.slider_1_left,
+            bindings_.slider_1_right,
+            deltaSeconds,
+            0.0f,
+            16.0f,
+            !mouse_slider_enabled_);
+    }
 
     frame.slider_direction =
         GetMmIoSliderDirection(
@@ -232,15 +238,18 @@ MmIoKeyboardFrame MmIoKeyboardMouseFrontend::Poll()
             IsDown(keyboard, bindings_.slider_2_right),
             mmio::SlideLeft2,
             mmio::SlideRight2);
-    UpdateContact(
-        right_contact_,
-        keyboard,
-        bindings_.slider_2_left,
-        bindings_.slider_2_right,
-        deltaSeconds,
-        16.0f,
-        32.0f,
-        !mouse_slider_enabled_);
+    if (calculateKeyboardSlider)
+    {
+        UpdateContact(
+            right_contact_,
+            keyboard,
+            bindings_.slider_2_left,
+            bindings_.slider_2_right,
+            deltaSeconds,
+            16.0f,
+            32.0f,
+            !mouse_slider_enabled_);
+    }
 
     const auto mouseDelta = ConsumeMmIoRawMouseDelta();
     if (mouseDelta.x != 0 || mouseDelta.y != 0 || mouseDelta.wheel != 0)
@@ -331,10 +340,14 @@ MmIoKeyboardFrame MmIoKeyboardMouseFrontend::Poll()
 
     const bool leftContactActive =
         left_contact_.mouse_active ||
-        IsDown(keyboard, bindings_.slider_1_left) || IsDown(keyboard, bindings_.slider_1_right);
+        (calculateKeyboardSlider &&
+            (IsDown(keyboard, bindings_.slider_1_left) ||
+                IsDown(keyboard, bindings_.slider_1_right)));
     const bool rightContactActive =
         right_contact_.mouse_active ||
-        IsDown(keyboard, bindings_.slider_2_left) || IsDown(keyboard, bindings_.slider_2_right);
+        (calculateKeyboardSlider &&
+            (IsDown(keyboard, bindings_.slider_2_left) ||
+                IsDown(keyboard, bindings_.slider_2_right)));
     if (leftContactActive)
     {
         const auto sensor = static_cast<unsigned int>(std::floor(left_contact_.movement.position));

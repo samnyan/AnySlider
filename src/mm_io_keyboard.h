@@ -89,7 +89,8 @@ public:
         bool enabled,
         float sliderCellsPerSecond,
         const MmIoKeyboardBindings& bindings,
-        const MmIoMouseSliderConfig& mouseSliderConfig);
+        const MmIoMouseSliderConfig& mouseSliderConfig,
+        MmIoSliderMode sliderMode);
     [[nodiscard]] bool IsEnabled() const;
     [[nodiscard]] bool IsMouseSliderEnabled() const;
     void DisableMouseSlider();
@@ -111,6 +112,7 @@ private:
     MmIoKeyboardBindings bindings_;
     MmIoMouseSliderConfig mouse_slider_;
     bool mouse_slider_enabled_ = false;
+    MmIoSliderMode slider_mode_ = MmIoSliderMode::Arcade;
     int debug_left_arcade_cell_ = -1;
     int debug_right_arcade_cell_ = -1;
     SliderContact left_contact_{};
