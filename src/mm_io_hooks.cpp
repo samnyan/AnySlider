@@ -17,19 +17,23 @@ namespace anyslider
 {
 namespace
 {
+// Optional fallback for missing native action aliases; currently unnecessary.
+constexpr bool EnableInputCheckActionFallback = false;
+
 constexpr size_t InputTappedButtonsOffset = 0x00;
 constexpr size_t InputReleasedButtonsOffset = 0x18;
 constexpr size_t InputHeldButtonsOffset = 0x30;
 constexpr size_t InputAnalogOffset = 0xE0;
 constexpr size_t InputSelectedDevicePresentOffset = 0x2C9;
 constexpr size_t SliderCellsAnalogIndex = 6;
-constexpr uint32_t VirtualGamepadDeviceType = 7;
 
 using MergeSliderSensorButtons = int64_t(__fastcall*)(void* state, void* sensorState);
 using MergeConnectedDevice = int64_t(__fastcall*)(void* state, void* deviceState, uint32_t playerIndex);
 using MergeSelectedDevice = int64_t(__fastcall*)(void* state, void* deviceState, uint32_t playerIndex, uint32_t* selectedDeviceType);
 using DirectInputDevicePollState = char(__fastcall*)(void* device, void* deviceState);
 using ResetInputState = int64_t(__fastcall*)(void* state);
+using InputActionPredicate = int64_t(__fastcall*)(void* state, uint64_t action);
+using InputCheckAction = char(__fastcall*)(void* state, uint64_t action, InputActionPredicate predicate);
 using IsArcadeControllerEnabled = bool(__fastcall*)();
 
 MergeSliderSensorButtons originalMergeSliderSensorButtons = nullptr;
@@ -37,6 +41,7 @@ MergeConnectedDevice originalMergeConnectedDevice = nullptr;
 MergeSelectedDevice originalMergeSelectedDevice = nullptr;
 DirectInputDevicePollState originalDirectInputDevicePollState = nullptr;
 ResetInputState resetInputState = nullptr;
+InputCheckAction originalInputCheckAction = nullptr;
 IsArcadeControllerEnabled originalIsArcadeControllerEnabled = nullptr;
 
 MmIoConfig mmIoConfig;
@@ -50,6 +55,7 @@ bool installed = false;
 bool selectedDeviceHookInstalled = false;
 bool exclusiveControllerHooksInstalled = false;
 bool directInputHooksInstalled = false;
+bool inputCheckActionHookInstalled = false;
 bool arcadeControllerHookInstalled = false;
 thread_local bool debugSliderStateInitialized = false;
 thread_local MmIoSliderMode debugLastSliderMode = MmIoSliderMode::Arcade;
@@ -58,8 +64,10 @@ thread_local uint32_t debugLastDirectionHeld = 0;
 thread_local bool debugInjectedSliderInitialized = false;
 thread_local mmio::Mode debugLastInjectedMode = mmio::Mode::None;
 thread_local uint32_t debugLastInjectedValue = 0;
-thread_local bool debugSelectedDeviceInitialized = false;
-thread_local bool debugLastVirtualSelectedDevice = false;
+thread_local bool debugLogicalActionInitialized = false;
+thread_local uint32_t debugLastLogicalAction = 0;
+thread_local uint32_t debugLastLogicalRawAction = 0;
+thread_local bool debugLastLogicalResult = false;
 
 struct AcceptedInputFrame
 {
@@ -103,6 +111,7 @@ struct ButtonEdgeTracker
 
 ButtonEdgeTracker keyboardButtonEdges;
 ButtonEdgeTracker mergedProviderEdges;
+ButtonEdgeTracker gamepadDirectionEdges;
 
 void MergeGameButtons(
     uint64_t (&destination)[mmio::kGameButtonWordCount],
@@ -176,6 +185,18 @@ uint32_t MapTouchCells(const uint8_t* touchCells)
     return result;
 }
 
+uint32_t MapGamepadLogicalAction(uint64_t action)
+{
+    switch (action)
+    {
+    case mmio::DpadUp: return 24;
+    case mmio::DpadDown: return 25;
+    case mmio::DpadLeft: return 26;
+    case mmio::DpadRight: return 27;
+    default: return UINT32_MAX;
+    }
+}
+
 const char* SliderModeName(MmIoSliderMode mode)
 {
     return mode == MmIoSliderMode::Arcade ? "arcade" : "joystick";
@@ -226,6 +247,14 @@ constexpr SharedMemoryButtonDebugEntry kSharedMemoryButtonDebugEntries[] = {
     { mmio::Select, "Select" },
     { mmio::L3, "L3" },
     { mmio::R3, "R3" },
+    { mmio::Stick1Up, "Stick1Up" },
+    { mmio::Stick1Down, "Stick1Down" },
+    { mmio::Stick1Left, "Stick1Left" },
+    { mmio::Stick1Right, "Stick1Right" },
+    { mmio::Stick2Up, "Stick2Up" },
+    { mmio::Stick2Down, "Stick2Down" },
+    { mmio::Stick2Left, "Stick2Left" },
+    { mmio::Stick2Right, "Stick2Right" },
     { mmio::Pause, "Pause" },
 };
 
@@ -264,14 +293,14 @@ void RefreshAcceptedInputFrame()
     const mmio::InputSnapshot& keyboardSnapshot = keyboardFrame.snapshot;
     const bool keyboardActive = keyboardFrontend.IsEnabled();
     MmIoJoyShockFrame controllerFrame{};
-    bool controllerAvailable = false;
+    bool controllerInputActive = false;
     bool controllerTakeoverActive = false;
     if (mmIoConfig.gamepad.enabled)
     {
         controllerFrame = joyShockFrontend.Consume();
-        controllerAvailable = controllerFrame.has_activity;
+        controllerInputActive = controllerFrame.connected;
         controllerTakeoverActive =
-            mmIoConfig.exclusive_controller_input && controllerFrame.connected;
+            mmIoConfig.exclusive_controller_input && controllerInputActive;
     }
 
     acceptedInputFrame = {};
@@ -311,7 +340,7 @@ void RefreshAcceptedInputFrame()
         keyboardButtonEdges.Reset();
     }
 
-    if (controllerTakeoverActive)
+    if (controllerInputActive)
     {
         MergeGameButtons(
             acceptedInputFrame.gamebtn_tapped,
@@ -354,13 +383,13 @@ void RefreshAcceptedInputFrame()
     const bool keyboardDirectTouchActive =
         HasMmIoSliderTouch(keyboardFrame.direct_touch_cells);
     const bool controllerDirectTouchActive =
-        controllerAvailable && HasMmIoSliderTouch(controllerFrame.touch_cells);
+        controllerInputActive && HasMmIoSliderTouch(controllerFrame.touch_cells);
     const bool frontendDirectionActive =
         (keyboardActive && keyboardFrame.slider_direction != 0) ||
-        (controllerTakeoverActive && controllerFrame.gamepad_slide != 0);
+        (controllerInputActive && controllerFrame.gamepad_slide != 0);
     const uint32_t directionHeld = externalGamepadSlide |
         (keyboardActive ? keyboardFrame.slider_direction : 0) |
-        (controllerTakeoverActive ? controllerFrame.gamepad_slide : 0);
+        (controllerInputActive ? controllerFrame.gamepad_slide : 0);
     const bool directTouchActive = externalArcadeActive ||
         keyboardDirectTouchActive || controllerDirectTouchActive;
     const bool preserveExternalGamepad =
@@ -387,7 +416,7 @@ void RefreshAcceptedInputFrame()
             directTouchActive ? "yes" : "no",
             directionHeld,
             keyboardActive ? keyboardFrame.slider_direction : 0,
-            controllerTakeoverActive ? controllerFrame.gamepad_slide : 0,
+            controllerInputActive ? controllerFrame.gamepad_slide : 0,
             controllerFrame.gamepad_slide,
             controllerTakeoverActive ? "yes" : "no",
             InputModeName(outputMode));
@@ -411,7 +440,7 @@ void RefreshAcceptedInputFrame()
                 acceptedInputFrame.touch_cells,
                 keyboardSnapshot.touch_cells);
         }
-        if (controllerAvailable)
+        if (controllerInputActive)
         {
             MergeTouchCells(
                 acceptedInputFrame.touch_cells,
@@ -432,12 +461,33 @@ void RefreshAcceptedInputFrame()
             ? mmio::Mode::GamepadDualStick
             : mmio::Mode::None;
         acceptedInputFrame.active = acceptedInputFrame.active || directionHeld != 0;
+
+        uint64_t directionHeldState[mmio::kGameButtonWordCount]{};
+        // Menu 中检查26/27/30/31
+        directionHeldState[0] = MapGamepadSlide(directionHeld);
+        // Gameplay 中检查154/155/158/159作为摇杆方向
+        directionHeldState[2] = MapGamepadSlide(directionHeld);
+        uint64_t directionTapped[mmio::kGameButtonWordCount]{};
+        uint64_t directionReleased[mmio::kGameButtonWordCount]{};
+        uint64_t directionDown[mmio::kGameButtonWordCount]{};
+        gamepadDirectionEdges.Apply(
+            directionHeldState,
+            directionTapped,
+            directionReleased,
+            directionDown);
+        MergeGameButtons(acceptedInputFrame.gamebtn_tapped, directionTapped);
+        MergeGameButtons(acceptedInputFrame.gamebtn_released, directionReleased);
+        MergeGameButtons(acceptedInputFrame.gamebtn_down, directionDown);
+    }
+    if (effectiveSliderMode == MmIoSliderMode::Arcade)
+    {
+        gamepadDirectionEdges.Reset();
     }
 
     acceptedInputFrame.ui_activity_pending = HasPrimaryButtonTap(
         acceptedInputFrame.gamebtn_tapped);
     acceptedInputFrame.exclusive =
-        (externalActive || keyboardActive || controllerTakeoverActive) &&
+        (externalActive || keyboardActive || controllerInputActive) &&
         mmIoConfig.exclusive_controller_input;
     arcadeSliderActive.store(
         acceptedInputFrame.slider_mode == mmio::Mode::ArcadeSlider &&
@@ -498,14 +548,14 @@ void InjectAcceptedInput(void* state)
     {
         const uint32_t gamepadMask = static_cast<uint32_t>(
             MapGamepadSlide(acceptedInputFrame.gamepad_slide));
-        heldButtons[0] |= gamepadMask;
         if (!debugInjectedSliderInitialized ||
             debugLastInjectedMode != mmio::Mode::GamepadDualStick ||
             debugLastInjectedValue != gamepadMask)
         {
             DebugLog(
-                "Injected slider: mode=GamepadDualStick button-mask=0x%08X slide=0x%X",
+                "Injected slider: mode=GamepadDualStick raw-mask=0x%08X gameplay-word2=0x%016llX slide=0x%X",
                 gamepadMask,
+                static_cast<unsigned long long>(acceptedInputFrame.gamebtn_down[2]),
                 acceptedInputFrame.gamepad_slide);
         }
         debugInjectedSliderInitialized = true;
@@ -516,6 +566,61 @@ void InjectAcceptedInput(void* state)
     {
         debugInjectedSliderInitialized = false;
     }
+}
+
+// Fallback path for environments where the native gamepad action alias is absent.
+char __fastcall InputCheckActionHook(
+    void* state,
+    uint64_t action,
+    InputActionPredicate predicate)
+{
+    char result = originalInputCheckAction(state, action, predicate);
+    if (!acceptedInputFrame.active ||
+        acceptedInputFrame.slider_mode == mmio::Mode::ArcadeSlider)
+    {
+        debugLogicalActionInitialized = false;
+        return result;
+    }
+
+    const uint32_t rawAction = MapGamepadLogicalAction(action);
+    if (rawAction == UINT32_MAX)
+    {
+        return result;
+    }
+
+    const char rawResult = predicate ? static_cast<char>(predicate(state, rawAction)) : 0;
+    if (!IsDebugLoggingEnabled())
+    {
+        debugLogicalActionInitialized = false;
+        return static_cast<char>(result || rawResult);
+    }
+    const uint64_t heldWord = state
+        ? *reinterpret_cast<const uint64_t*>(static_cast<const uint8_t*>(state) + InputHeldButtonsOffset)
+        : 0;
+    const uint64_t repeatWord = state
+        ? *reinterpret_cast<const uint64_t*>(static_cast<const uint8_t*>(state) + 0x90)
+        : 0;
+    result = static_cast<char>(result || rawResult);
+    if (false && (!debugLogicalActionInitialized ||
+        debugLastLogicalAction != action ||
+        debugLastLogicalRawAction != rawAction ||
+        debugLastLogicalResult != (result != 0)))
+    {
+        DebugLog(
+            "Logical action shim: action=%llu raw-axis-action=%u predicate=%p held0=0x%016llX repeat0=0x%016llX raw-result=%s result=%s",
+            action,
+            rawAction,
+            reinterpret_cast<const void*>(predicate),
+            heldWord,
+            repeatWord,
+            rawResult ? "true" : "false",
+            result ? "true" : "false");
+    }
+    debugLogicalActionInitialized = true;
+    debugLastLogicalAction = static_cast<uint32_t>(action);
+    debugLastLogicalRawAction = rawAction;
+    debugLastLogicalResult = result != 0;
+    return result;
 }
 
 int64_t __fastcall MergeSliderSensorButtonsHook(void* state, void* sensorState)
@@ -562,31 +667,6 @@ int64_t __fastcall MergeSelectedDeviceHook(
     uint32_t playerIndex,
     uint32_t* selectedDeviceType)
 {
-    if (acceptedInputFrame.exclusive)
-    {
-        if (!debugSelectedDeviceInitialized || debugLastVirtualSelectedDevice != true)
-        {
-            DebugLog(
-                "Selected device: virtual gamepad type=%u source=mmio mode=%s",
-                VirtualGamepadDeviceType,
-                InputModeName(acceptedInputFrame.slider_mode));
-        }
-        debugSelectedDeviceInitialized = true;
-        debugLastVirtualSelectedDevice = true;
-        static_cast<uint8_t*>(state)[InputSelectedDevicePresentOffset] = 1;
-        if (selectedDeviceType)
-        {
-            *selectedDeviceType = VirtualGamepadDeviceType;
-        }
-        return VirtualGamepadDeviceType;
-    }
-
-    if (!debugSelectedDeviceInitialized || debugLastVirtualSelectedDevice != false)
-    {
-        DebugLog("Selected device: native source");
-    }
-    debugSelectedDeviceInitialized = true;
-    debugLastVirtualSelectedDevice = false;
     const int64_t result = originalMergeSelectedDevice(
         state, deviceState, playerIndex, selectedDeviceType);
     const bool uiActivityPending = acceptedInputFrame.ui_activity_pending;
@@ -594,11 +674,6 @@ int64_t __fastcall MergeSelectedDeviceHook(
     if (uiActivityPending)
     {
         static_cast<uint8_t*>(state)[InputSelectedDevicePresentOffset] = 1;
-        if (selectedDeviceType)
-        {
-            *selectedDeviceType = VirtualGamepadDeviceType;
-        }
-        return VirtualGamepadDeviceType;
     }
     return result;
 }
@@ -623,6 +698,9 @@ bool InstallDetours()
     constexpr char resetInputStateBytes[] =
         "\x33\xD2\x33\xC0\x0F\x57\xC0\x0F\x11\x01\x0F\x11\x41\x10\x0F\x11\x41\x20\x0F\x11\x41\x30\x48\x89\x41\x40";
     constexpr char resetInputStateMask[] = "xxxxxxxxxxxxxxxxxxxxxxxxxx";
+    constexpr char inputCheckActionBytes[] =
+        "\x40\x55\x41\x56\x48\x83\xEC\x38\x4D\x8B\xF0\x48\x8B\xE9\x4D\x85\xC0\x75";
+    constexpr char inputCheckActionMask[] = "xxxxxxxxxxxxxxxxxx";
     constexpr char selectedMergeBytes[] =
         "\x48\x89\x5C\x24\x00\x48\x89\x74\x24\x00\x48\x89\x7C\x24\x00\x41\x56\x48\x83\xEC\x20\x48\x8B\xFA";
     constexpr char selectedMergeMask[] = "xxxx?xxxx?xxxx?xxxxxxxxx";
@@ -631,20 +709,32 @@ bool InstallDetours()
     constexpr char arcadeMask[] = "xxxxx????xxx";
     const bool installSelectedDeviceHook =
         mmIoConfig.keyboard_mouse_frontend || mmIoConfig.gamepad.enabled;
+    const bool installInputCheckActionHook = EnableInputCheckActionFallback;
     // Shared-memory producers may publish ArcadeSlider without a built-in frontend.
     const bool installArcadeControllerHook = true;
 
     originalMergeSliderSensorButtons = reinterpret_cast<MergeSliderSensorButtons>(
         FindSignature(sliderMergeBytes, sliderMergeMask));
+    if (installInputCheckActionHook)
+    {
+        originalInputCheckAction = reinterpret_cast<InputCheckAction>(
+            FindSignature(inputCheckActionBytes, inputCheckActionMask));
+    }
     if (installArcadeControllerHook)
     {
         originalIsArcadeControllerEnabled = reinterpret_cast<IsArcadeControllerEnabled>(
             FindSignature(arcadeBytes, arcadeMask));
     }
     if (!originalMergeSliderSensorButtons ||
+        (installInputCheckActionHook && !originalInputCheckAction) ||
         (installArcadeControllerHook && !originalIsArcadeControllerEnabled))
     {
-        Log("MMIO core input signatures were not found; no MMIO hooks were installed.");
+        Log("MMIO core input signatures were not found; slider=%s action-query=%s arcade-query=%s; no MMIO hooks were installed.",
+            originalMergeSliderSensorButtons ? "ok" : "missing",
+            installInputCheckActionHook
+                ? (originalInputCheckAction ? "ok" : "missing")
+                : "disabled",
+            originalIsArcadeControllerEnabled ? "ok" : "missing");
         return false;
     }
 
@@ -685,6 +775,12 @@ bool InstallDetours()
         error = DetourAttach(
             reinterpret_cast<void**>(&originalMergeSliderSensorButtons),
             MergeSliderSensorButtonsHook);
+    }
+    if (error == NO_ERROR && installInputCheckActionHook)
+    {
+        error = DetourAttach(
+            reinterpret_cast<void**>(&originalInputCheckAction),
+            InputCheckActionHook);
     }
     if (error == NO_ERROR && installSelectedDeviceHook)
     {
@@ -730,6 +826,7 @@ bool InstallDetours()
     arcadeControllerHookInstalled = installArcadeControllerHook;
     exclusiveControllerHooksInstalled = mmIoConfig.exclusive_controller_input;
     directInputHooksInstalled = mmIoConfig.exclusive_controller_input;
+    inputCheckActionHookInstalled = installInputCheckActionHook;
     return true;
 }
 }
@@ -744,7 +841,7 @@ bool InitializeMmIoHooks(const MmIoConfig& config)
     mmIoConfig = config;
     debugSliderStateInitialized = false;
     debugInjectedSliderInitialized = false;
-    debugSelectedDeviceInitialized = false;
+    debugLogicalActionInitialized = false;
     sliderModeResolver.Initialize(config.slider_mode);
     joyShockFrontend.Initialize(
         config.gamepad,
@@ -781,7 +878,7 @@ bool InitializeMmIoHooks(const MmIoConfig& config)
         return false;
     }
 
-    Log("MMIO backend ready: mapping=%ls lease=%llu ms exclusive=%s keyboard-mouse=%s mouse-slider=%s gamepad=%s selected-device-hook=%s directinput-hooks=%s arcade-query-hook=%s",
+    Log("MMIO backend ready: mapping=%ls lease=%llu ms exclusive=%s keyboard-mouse=%s mouse-slider=%s gamepad=%s selected-device-hook=%s directinput-poll-hooks=%s action-query-hook=%s arcade-query-hook=%s",
         config.shared_memory_name.c_str(),
         config.max_input_lease_ms,
         config.exclusive_controller_input ? "true" : "false",
@@ -790,6 +887,7 @@ bool InitializeMmIoHooks(const MmIoConfig& config)
         joyShockFrontend.IsEnabled() ? "true" : "false",
         selectedDeviceHookInstalled ? "true" : "false",
         directInputHooksInstalled ? "true" : "false",
+        inputCheckActionHookInstalled ? "true" : "false",
         arcadeControllerHookInstalled ? "true" : "false");
     return true;
 }
@@ -801,7 +899,6 @@ void ShutdownMmIoHooks()
     acceptedInputFrame = {};
     debugSliderStateInitialized = false;
     debugInjectedSliderInitialized = false;
-    debugSelectedDeviceInitialized = false;
     joyShockFrontend.Shutdown();
     sliderModeResolver.Reset();
     mmIoConsumer.Shutdown();
@@ -815,6 +912,12 @@ void ShutdownMmIoHooks()
     DetourDetach(
         reinterpret_cast<void**>(&originalMergeSliderSensorButtons),
         MergeSliderSensorButtonsHook);
+    if (inputCheckActionHookInstalled)
+    {
+        DetourDetach(
+            reinterpret_cast<void**>(&originalInputCheckAction),
+            InputCheckActionHook);
+    }
     if (selectedDeviceHookInstalled)
     {
         DetourDetach(
@@ -843,6 +946,7 @@ void ShutdownMmIoHooks()
     selectedDeviceHookInstalled = false;
     exclusiveControllerHooksInstalled = false;
     directInputHooksInstalled = false;
+    inputCheckActionHookInstalled = false;
     arcadeControllerHookInstalled = false;
     installed = false;
 }

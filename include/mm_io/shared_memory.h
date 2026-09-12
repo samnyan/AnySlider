@@ -74,6 +74,14 @@ enum GameButton : uint32_t
     R3 = 17,
     Sw1 = 18,       // Arcade slider-derived system switch 1.
     Sw2 = 19,       // Arcade slider-derived system switch 2.
+    Stick1Up = 24,
+    Stick1Down = 25,
+    Stick1Left = 26,
+    Stick1Right = 27,
+    Stick2Up = 28,
+    Stick2Down = 29,
+    Stick2Left = 30,
+    Stick2Right = 31,
     Pause = 160,    // PS Options / keyboard Escape pause action.
 };
 

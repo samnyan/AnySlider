@@ -45,6 +45,15 @@
     <ClInclude Include="src\vid_pid_remap.h">
       <Filter>头文件</Filter>
     </ClInclude>
+    <ClInclude Include="src\mm_io_joyshock.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="src\mm_io_raw_input.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="src\mm_io_slider.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="dllmain.cpp">
@@ -72,6 +81,21 @@
       <Filter>源文件</Filter>
     </ClCompile>
     <ClCompile Include="src\vid_pid_remap.cpp">
+      <Filter>源文件</Filter>
+    </ClCompile>
+    <ClCompile Include="src\mm_io_joyshock.cpp">
+      <Filter>源文件</Filter>
+    </ClCompile>
+    <ClCompile Include="src\mm_io_raw_input.cpp">
+      <Filter>源文件</Filter>
+    </ClCompile>
+    <ClCompile Include="src\mm_io_slider.cpp">
+      <Filter>源文件</Filter>
+    </ClCompile>
+    <ClCompile Include="Dependencies\JoyShockLibrary\JoyShockLibrary\JoyShockLibrary.cpp">
+      <Filter>源文件</Filter>
+    </ClCompile>
+    <ClCompile Include="Dependencies\hidapi\windows\hid.c">
       <Filter>源文件</Filter>
     </ClCompile>
   </ItemGroup>

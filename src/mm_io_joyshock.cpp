@@ -50,8 +50,19 @@ void SetAction(
     mmio::SetGameButton(buttons, action, down);
 }
 
+bool IsAxisNegative(float value, float deadzone)
+{
+    return value <= -deadzone;
+}
+
+bool IsAxisPositive(float value, float deadzone)
+{
+    return value >= deadzone;
+}
+
 void MapJoyShockButtons(
     int controllerType,
+    const MmIoGamepadConfig& config,
     JOY_SHOCK_STATE state,
     uint64_t (&buttons)[mmio::kGameButtonWordCount])
 {
@@ -69,6 +80,16 @@ void MapJoyShockButtons(
     SetAction(buttons, mmio::R2, state.rTrigger >= 0.5f);
     SetAction(buttons, mmio::L3, (state.buttons & JSMASK_LCLICK) != 0);
     SetAction(buttons, mmio::R3, (state.buttons & JSMASK_RCLICK) != 0);
+
+    const float deadzone = config.stick_slider_deadzone;
+    SetAction(buttons, mmio::Stick1Up, IsAxisNegative(state.stickLY, deadzone));
+    SetAction(buttons, mmio::Stick1Down, IsAxisPositive(state.stickLY, deadzone));
+    SetAction(buttons, mmio::Stick1Left, IsAxisNegative(state.stickLX, deadzone));
+    SetAction(buttons, mmio::Stick1Right, IsAxisPositive(state.stickLX, deadzone));
+    SetAction(buttons, mmio::Stick2Up, IsAxisNegative(state.stickRY, deadzone));
+    SetAction(buttons, mmio::Stick2Down, IsAxisPositive(state.stickRY, deadzone));
+    SetAction(buttons, mmio::Stick2Left, IsAxisNegative(state.stickRX, deadzone));
+    SetAction(buttons, mmio::Stick2Right, IsAxisPositive(state.stickRX, deadzone));
 
     if (controllerType == JS_TYPE_DS || controllerType == JS_TYPE_DS4)
     {
@@ -106,6 +127,14 @@ constexpr ButtonDebugEntry kButtonDebugEntries[] = {
     { mmio::R2, "R2" },
     { mmio::L3, "L3" },
     { mmio::R3, "R3" },
+    { mmio::Stick1Up, "Stick1Up" },
+    { mmio::Stick1Down, "Stick1Down" },
+    { mmio::Stick1Left, "Stick1Left" },
+    { mmio::Stick1Right, "Stick1Right" },
+    { mmio::Stick2Up, "Stick2Up" },
+    { mmio::Stick2Down, "Stick2Down" },
+    { mmio::Stick2Left, "Stick2Left" },
+    { mmio::Stick2Right, "Stick2Right" },
     { mmio::Pause, "Pause" },
     { mmio::Select, "Select" },
     { mmio::Start, "Start" },
@@ -114,19 +143,19 @@ constexpr ButtonDebugEntry kButtonDebugEntries[] = {
 uint32_t MapStickSlider(const MmIoGamepadConfig& config, JOY_SHOCK_STATE state)
 {
     uint32_t result = 0;
-    if (state.stickLX <= -config.stick_slider_deadzone)
+    if (IsAxisNegative(state.stickLX, config.stick_slider_deadzone))
     {
         result |= mmio::SlideLeft1;
     }
-    else if (state.stickLX >= config.stick_slider_deadzone)
+    else if (IsAxisPositive(state.stickLX, config.stick_slider_deadzone))
     {
         result |= mmio::SlideRight1;
     }
-    if (state.stickRX <= -config.stick_slider_deadzone)
+    if (IsAxisNegative(state.stickRX, config.stick_slider_deadzone))
     {
         result |= mmio::SlideLeft2;
     }
-    else if (state.stickRX >= config.stick_slider_deadzone)
+    else if (IsAxisPositive(state.stickRX, config.stick_slider_deadzone))
     {
         result |= mmio::SlideRight2;
     }
@@ -159,18 +188,6 @@ uint32_t MapTouchCells(const MmIoGamepadConfig& config, TOUCH_STATE state)
         result |= 1u << TouchXToCell(state.t1X, config.touchpad_invert);
     }
     return result;
-}
-
-bool HasBits(const uint64_t (&values)[mmio::kGameButtonWordCount])
-{
-    for (const uint64_t value : values)
-    {
-        if (value != 0)
-        {
-            return true;
-        }
-    }
-    return false;
 }
 
 void StoreFloat(std::atomic<uint32_t>& destination, float value)
@@ -340,10 +357,6 @@ MmIoJoyShockFrame MmIoJoyShockFrontend::Consume()
     {
         debug_right_arcade_cell_ = -1;
     }
-    frame.has_activity = frame.connected ||
-        HasBits(frame.gamebtn_tapped) || HasBits(frame.gamebtn_released) ||
-        touchCells != 0 || frame.gamepad_slide != 0 ||
-        HasMmIoSliderTouch(frame.arcade_touch_cells);
     return frame;
 }
 
@@ -412,8 +425,8 @@ void MmIoJoyShockFrontend::OnInput(
     uint64_t currentButtons[mmio::kGameButtonWordCount]{};
     uint64_t previousButtons[mmio::kGameButtonWordCount]{};
     const int controllerType = selectedType_.load(std::memory_order_acquire);
-    MapJoyShockButtons(controllerType, current, currentButtons);
-    MapJoyShockButtons(controllerType, previous, previousButtons);
+    MapJoyShockButtons(controllerType, config_, current, currentButtons);
+    MapJoyShockButtons(controllerType, config_, previous, previousButtons);
     for (uint32_t word = 0; word < mmio::kGameButtonWordCount; ++word)
     {
         pendingTapped_[word].fetch_or(
@@ -422,35 +435,38 @@ void MmIoJoyShockFrontend::OnInput(
             previousButtons[word] & ~currentButtons[word], std::memory_order_acq_rel);
         currentDown_[word].store(currentButtons[word], std::memory_order_release);
     }
-    const uint32_t gamepadSlide = slider_mode_ == MmIoSliderMode::Arcade
-        ? MapStickSlider(config_, current)
-        : 0;
+    const uint32_t gamepadSlide = MapStickSlider(config_, current);
     const uint32_t previousGamepadSlide = currentGamepadSlide_.exchange(
         gamepadSlide,
         std::memory_order_acq_rel);
     if (previousGamepadSlide != gamepadSlide)
     {
         DebugLog(
-            "Gamepad stick slider: handle=%d LX=%.3f RX=%.3f mapped=0x%X deadzone=%.3f mode=%s",
+            "Gamepad stick directions: handle=%d axes=(%.3f,%.3f,%.3f,%.3f) mapped=0x%X deadzone=%.3f mode=%s",
             deviceId,
             current.stickLX,
+            current.stickLY,
             current.stickRX,
+            current.stickRY,
             gamepadSlide,
             config_.stick_slider_deadzone,
             slider_mode_ == MmIoSliderMode::Arcade ? "arcade" : "joystick");
     }
-    for (const ButtonDebugEntry& entry : kButtonDebugEntries)
+    if (IsDebugLoggingEnabled())
     {
-        const bool isDown = mmio::IsGameButtonDown(currentButtons, entry.action);
-        const bool wasDown = mmio::IsGameButtonDown(previousButtons, entry.action);
-        if (isDown != wasDown)
+        for (const ButtonDebugEntry& entry : kButtonDebugEntries)
         {
-            DebugLog(
-                "Gamepad button: handle=%d action=%s(%u) %s",
-                deviceId,
-                entry.name,
-                entry.action,
-                isDown ? "down" : "up");
+            const bool isDown = mmio::IsGameButtonDown(currentButtons, entry.action);
+            const bool wasDown = mmio::IsGameButtonDown(previousButtons, entry.action);
+            if (isDown != wasDown)
+            {
+                DebugLog(
+                    "Gamepad button: handle=%d action=%s(%u) %s",
+                    deviceId,
+                    entry.name,
+                    entry.action,
+                    isDown ? "down" : "up");
+            }
         }
     }
     StoreFloat(accelXBits_, imu.accelX);

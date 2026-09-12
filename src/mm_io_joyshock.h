@@ -22,7 +22,6 @@ struct MmIoJoyShockFrame
     uint8_t arcade_touch_cells[mmio::kTouchCellCount]{};
     uint32_t gamepad_slide = 0;
     bool connected = false;
-    bool has_activity = false;
     bool touchpad_active = false;
 };
 
