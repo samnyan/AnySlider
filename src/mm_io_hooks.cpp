@@ -19,9 +19,7 @@ namespace anyslider
 {
 namespace
 {
-// Keeps the game's standard DualSense binding metadata available without a
-// registered native device.
-constexpr bool EnableInputCheckActionFallback = false;
+constexpr bool EnableInputCheckActionFallback = true;
 
 constexpr size_t InputTappedButtonsOffset = 0x00;
 constexpr size_t InputReleasedButtonsOffset = 0x18;
@@ -241,8 +239,9 @@ uint32_t MapGamepadLogicalAction(uint64_t action)
 {
     switch (action)
     {
-    case mmio::DpadUp: return 24;
-    case mmio::DpadDown: return 25;
+    // 游戏菜单的垂直 action 顺序与 shared-memory ABI 的名称相反。
+    case mmio::DpadUp: return 25;
+    case mmio::DpadDown: return 24;
     case mmio::DpadLeft: return 26;
     case mmio::DpadRight: return 27;
     default: return UINT32_MAX;
@@ -744,7 +743,7 @@ uint32_t __fastcall InputConfigGetDeviceActionBindingHook(
         action);
 }
 
-// Fallback path for environments where the native gamepad action alias is absent.
+// 目前UI菜单会用
 char __fastcall InputCheckActionHook(
     void* state,
     uint64_t action,
