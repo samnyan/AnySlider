@@ -338,6 +338,10 @@ MmIoJoyShockFrame MmIoJoyShockFrontend::Consume()
         frame.touch_cells[cell] = static_cast<uint8_t>((touchCells >> cell) & 1u);
     }
     frame.touchpad_active = touchpadActive_.load(std::memory_order_acquire);
+    frame.stick_lx = LoadFloat(stickLXBits_);
+    frame.stick_ly = LoadFloat(stickLYBits_);
+    frame.stick_rx = LoadFloat(stickRXBits_);
+    frame.stick_ry = LoadFloat(stickRYBits_);
     frame.gamepad_slide = currentGamepadSlide_.load(std::memory_order_acquire);
     UpdateMmIoSliderContact(
         left_contact_,
@@ -477,6 +481,10 @@ void MmIoJoyShockFrontend::OnInput(
     const uint32_t previousGamepadSlide = currentGamepadSlide_.exchange(
         gamepadSlide,
         std::memory_order_acq_rel);
+    StoreFloat(stickLXBits_, current.stickLX);
+    StoreFloat(stickLYBits_, current.stickLY);
+    StoreFloat(stickRXBits_, current.stickRX);
+    StoreFloat(stickRYBits_, current.stickRY);
     if (previousGamepadSlide != gamepadSlide)
     {
         DebugLog(
@@ -662,6 +670,10 @@ void MmIoJoyShockFrontend::ClearControllerState(bool preserveRelease)
     currentTouchCells_.store(0, std::memory_order_release);
     pendingTouchCells_.store(0, std::memory_order_release);
     currentGamepadSlide_.store(0, std::memory_order_release);
+    StoreFloat(stickLXBits_, 0.0f);
+    StoreFloat(stickLYBits_, 0.0f);
+    StoreFloat(stickRXBits_, 0.0f);
+    StoreFloat(stickRYBits_, 0.0f);
     touchpadActive_.store(false, std::memory_order_release);
     ResetMmIoSliderContact(left_contact_, 0.0f, 16.0f);
     ResetMmIoSliderContact(right_contact_, 16.0f, 32.0f);

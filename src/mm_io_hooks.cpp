@@ -11,6 +11,8 @@
 #include "mm_io_shared_memory.h"
 
 #include <atomic>
+#include <algorithm>
+#include <cmath>
 #include <cstring>
 
 namespace anyslider
@@ -27,6 +29,10 @@ constexpr size_t InputHeldButtonsOffset = 0x30;
 constexpr size_t InputAnalogOffset = 0xE0;
 constexpr size_t InputSelectedDevicePresentOffset = 0x2C9;
 constexpr size_t SliderCellsAnalogIndex = 6;
+constexpr size_t LeftStickXAnalogIndex = 0x14;
+constexpr size_t LeftStickYAnalogIndex = 0x15;
+constexpr size_t RightStickXAnalogIndex = 0x16;
+constexpr size_t RightStickYAnalogIndex = 0x17;
 
 constexpr uint32_t DualSenseControllerType = 3;
 constexpr uint32_t DualShock4ControllerType = 2;
@@ -84,6 +90,11 @@ struct AcceptedInputFrame
     uint64_t gamebtn_released[mmio::kGameButtonWordCount]{};
     uint64_t gamebtn_down[mmio::kGameButtonWordCount]{};
     uint8_t touch_cells[mmio::kTouchCellCount]{};
+    float stick_lx = 0.0f;
+    float stick_ly = 0.0f;
+    float stick_rx = 0.0f;
+    float stick_ry = 0.0f;
+    bool axes_active = false;
     uint32_t gamepad_slide = 0;
     mmio::Mode slider_mode = mmio::Mode::None;
     bool active = false;
@@ -443,6 +454,11 @@ void RefreshAcceptedInputFrame()
             acceptedInputFrame.gamebtn_released,
             controllerFrame.gamebtn_released);
         MergeGameButtons(providerHeld, controllerFrame.gamebtn_down);
+        acceptedInputFrame.stick_lx = controllerFrame.stick_lx;
+        acceptedInputFrame.stick_ly = controllerFrame.stick_ly;
+        acceptedInputFrame.stick_rx = controllerFrame.stick_rx;
+        acceptedInputFrame.stick_ry = controllerFrame.stick_ry;
+        acceptedInputFrame.axes_active = true;
         acceptedInputFrame.active = true;
     }
 
@@ -661,6 +677,29 @@ void InjectAcceptedInput(void* state)
         debugInjectedSliderInitialized = false;
     }
 }
+
+int32_t NativeAxisValue(float value)
+{
+    if (!std::isfinite(value))
+        return 0;
+    return static_cast<int32_t>(std::lround(
+        std::clamp(value, -1.0f, 1.0f) * 1000.0f));
+}
+
+// 注入摇杆轴值，NewClassics会需要
+void InjectAcceptedGamepadAxes(void* state)
+{
+    if (!state || !acceptedInputFrame.axes_active)
+        return;
+
+    auto* analog = reinterpret_cast<int32_t*>(static_cast<uint8_t*>(state) + InputAnalogOffset);
+    // 游戏用 1000 倍整数保存摇杆轴，GetPosition 会还原成 -1.0 到 1.0。
+    analog[LeftStickXAnalogIndex] = NativeAxisValue(acceptedInputFrame.stick_lx);
+    analog[LeftStickYAnalogIndex] = NativeAxisValue(acceptedInputFrame.stick_ly);
+    analog[RightStickXAnalogIndex] = NativeAxisValue(acceptedInputFrame.stick_rx);
+    analog[RightStickYAnalogIndex] = NativeAxisValue(acceptedInputFrame.stick_ry);
+}
+
 // 让游戏显示的图例和实际一致
 uint32_t __fastcall InputConfigGetDeviceActionBindingHook(
     uint32_t action,
@@ -782,6 +821,11 @@ int64_t __fastcall MergeSelectedDeviceHook(
     // 游戏原本的控制器类型
     const int64_t result = originalMergeSelectedDevice(
         state, deviceState, playerIndex, selectedDeviceType);
+
+    if (playerIndex == 0)
+    {
+        InjectAcceptedGamepadAxes(state);
+    }
 
     // 刚才是否通过Mod按下过按键
     const bool uiActivityPending = acceptedInputFrame.ui_activity_pending;

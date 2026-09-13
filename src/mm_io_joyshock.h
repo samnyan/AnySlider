@@ -27,6 +27,10 @@ struct MmIoJoyShockFrame
     uint64_t gamebtn_down[mmio::kGameButtonWordCount]{};
     uint8_t touch_cells[mmio::kTouchCellCount]{};
     uint8_t arcade_touch_cells[mmio::kTouchCellCount]{};
+    float stick_lx = 0.0f;
+    float stick_ly = 0.0f;
+    float stick_rx = 0.0f;
+    float stick_ry = 0.0f;
     uint32_t gamepad_slide = 0;
     MmIoControllerType controller_type = MmIoControllerType::DualSense;
     bool connected = false;
@@ -92,6 +96,10 @@ private:
     std::atomic<uint32_t> currentTouchCells_ = 0;
     std::atomic<uint32_t> pendingTouchCells_ = 0;
     std::atomic<uint32_t> currentGamepadSlide_ = 0;
+    std::atomic<uint32_t> stickLXBits_ = 0;
+    std::atomic<uint32_t> stickLYBits_ = 0;
+    std::atomic<uint32_t> stickRXBits_ = 0;
+    std::atomic<uint32_t> stickRYBits_ = 0;
     std::atomic_bool touchpadActive_ = false;
     std::atomic<uint32_t> accelXBits_ = 0;
     std::atomic<uint32_t> accelYBits_ = 0;
