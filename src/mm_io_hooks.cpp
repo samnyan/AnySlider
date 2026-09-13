@@ -143,6 +143,26 @@ void MergeGameButtons(
     }
 }
 
+float SimulatedAxisValue(uint32_t direction, uint32_t negative, uint32_t positive)
+{
+    const bool negativeHeld = (direction & negative) != 0;
+    const bool positiveHeld = (direction & positive) != 0;
+    if (negativeHeld == positiveHeld)
+        return 0.0f;
+    return negativeHeld ? -1.0f : 1.0f;
+}
+
+void SetSimulatedGamepadAxes(AcceptedInputFrame& frame, uint32_t direction)
+{
+    frame.stick_lx = SimulatedAxisValue(
+        direction, MmIoSlideLeft1, MmIoSlideRight1);
+    frame.stick_rx = SimulatedAxisValue(
+        direction, MmIoSlideLeft2, MmIoSlideRight2);
+    frame.stick_ly = 0.0f;
+    frame.stick_ry = 0.0f;
+    frame.axes_active = true;
+}
+
 bool HasPrimaryButtonTap(
     const uint64_t (&tapped)[mmio::kGameButtonWordCount])
 {
@@ -500,6 +520,11 @@ void RefreshAcceptedInputFrame()
     const uint32_t directionHeld = externalGamepadSlide |
         (keyboardActive ? keyboardFrame.slider_direction : 0) |
         (controllerInputActive ? controllerFrame.gamepad_slide : 0);
+    if (!controllerInputActive && directionHeld != 0)
+    {
+        // 键盘和 shared memory 只有方向，先转换成一次完整的虚拟摇杆轴。
+        SetSimulatedGamepadAxes(acceptedInputFrame, directionHeld);
+    }
     const bool directTouchActive = externalArcadeActive ||
         keyboardDirectTouchActive || controllerDirectTouchActive;
     const bool preserveExternalGamepad =
