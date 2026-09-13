@@ -125,13 +125,13 @@ namespace anyslider::mmio
     // Complete controller state at one point in time.
     struct InputSnapshot
     {
-        uint32_t mode;
-
         // Raw MM+ action IDs 0..191.
         uint64_t gamebtn[kGameButtonWordCount];
 
         // 32 arcade slider cells, left to right 0 to 31.
         uint32_t touch_mask;
+
+        uint32_t mode;
 
         uint64_t timestamp_ms;
     };
@@ -148,7 +148,7 @@ namespace anyslider::mmio
     };
 
 
-    // Endpoint status and heartbeat.
+    // Endpoint status, heartbeat, and input contract.
     struct alignas(8) Endpoint
     {
         uint32_t process_id;
@@ -158,6 +158,11 @@ namespace anyslider::mmio
 
         uint64_t started_ms;
         uint64_t heartbeat_ms;
+
+        // Maximum accepted age of an input snapshot, in milliseconds.
+        // SharedBuffer::hook advertises this to producers; they should publish
+        // before the lease expires.
+        uint64_t lease_ms;
     };
 
 
@@ -189,12 +194,17 @@ namespace anyslider::mmio
 
 
     // ABI layout checks.
-    static_assert(sizeof(InputSnapshot) == 48);
-    static_assert(sizeof(InputSlot) == 56);
-    static_assert(sizeof(Endpoint) == 24);
+    static_assert(sizeof(InputSnapshot) == 40);
+    static_assert(sizeof(InputSlot) == 48);
+    static_assert(sizeof(Endpoint) == 32);
 
+    static_assert(offsetof(InputSnapshot, gamebtn) == 0);
+    static_assert(offsetof(InputSnapshot, touch_mask) == 24);
+    static_assert(offsetof(InputSnapshot, mode) == 28);
+    static_assert(offsetof(InputSnapshot, timestamp_ms) == 32);
     static_assert(offsetof(InputSlot, input) == 8);
     static_assert(offsetof(SharedBuffer, input_sequence) == 16);
     static_assert(offsetof(SharedBuffer, inputs) == 24);
+    static_assert(sizeof(SharedBuffer) == 6232);
 
 }

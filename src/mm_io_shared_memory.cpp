@@ -34,10 +34,10 @@ int64_t ReadSequence(const volatile int64_t* sequence)
     return InterlockedCompareExchange64(const_cast<volatile int64_t*>(sequence), 0, 0);
 }
 
-void WriteHeartbeat(uint64_t& heartbeatMs, uint64_t nowMs)
+void WriteAtomicUint64(uint64_t& value, uint64_t valueToWrite)
 {
-    InterlockedExchange64(reinterpret_cast<volatile int64_t*>(&heartbeatMs),
-        static_cast<int64_t>(nowMs));
+    InterlockedExchange64(reinterpret_cast<volatile int64_t*>(&value),
+        static_cast<int64_t>(valueToWrite));
 }
 
 bool HasAnyGameButton(const uint64_t (&gamebtn)[mmio::kGameButtonWordCount])
@@ -192,7 +192,10 @@ mmio::SharedBuffer* MmIoSharedMemory::Get() const
     return buffer_;
 }
 
-bool MmIoConsumer::Initialize(std::wstring_view name, uint32_t capabilities)
+bool MmIoConsumer::Initialize(
+    std::wstring_view name,
+    uint32_t capabilities,
+    uint64_t leaseMs)
 {
     if (!shared_memory_.OpenOrCreate(name, capabilities))
         return false;
@@ -203,7 +206,8 @@ bool MmIoConsumer::Initialize(std::wstring_view name, uint32_t capabilities)
     endpoint.protocol_major = mmio::kAbiMajor;
     endpoint.protocol_minor = mmio::kAbiMinor;
     endpoint.started_ms = nowMs;
-    WriteHeartbeat(endpoint.heartbeat_ms, nowMs);
+    WriteAtomicUint64(endpoint.heartbeat_ms, nowMs);
+    WriteAtomicUint64(endpoint.lease_ms, leaseMs);
     ResetButtonState();
     return true;
 }
@@ -237,7 +241,7 @@ bool MmIoConsumer::ReadFrame(InputFrame& frame, uint64_t maxLeaseMs)
 
     // 写入时间戳和基础信息
     const uint64_t nowMs = MmIoNowMilliseconds();
-    WriteHeartbeat(buffer->hook.heartbeat_ms, nowMs);
+    WriteAtomicUint64(buffer->hook.heartbeat_ms, nowMs);
     const uint32_t processId = buffer->producer.process_id;
     const uint64_t startedMs = buffer->producer.started_ms;
 
@@ -380,7 +384,7 @@ bool MmIoPublisher::Initialize(std::wstring_view name, uint32_t capabilities)
     endpoint.protocol_major = mmio::kAbiMajor;
     endpoint.protocol_minor = mmio::kAbiMinor;
     endpoint.started_ms = nowMs;
-    WriteHeartbeat(endpoint.heartbeat_ms, nowMs);
+    WriteAtomicUint64(endpoint.heartbeat_ms, nowMs);
 
     // A new producer session never exposes snapshots from the previous owner.
     InterlockedExchange64(&buffer->input_sequence, 0);
@@ -411,7 +415,7 @@ bool MmIoPublisher::Publish(const mmio::InputSnapshot& snapshot)
     InterlockedExchange64(&slot.sequence, nextSequence);
     MemoryBarrier();
     InterlockedExchange64(&buffer->input_sequence, nextSequence);
-    WriteHeartbeat(buffer->producer.heartbeat_ms, MmIoNowMilliseconds());
+    WriteAtomicUint64(buffer->producer.heartbeat_ms, MmIoNowMilliseconds());
     return true;
 }
 }

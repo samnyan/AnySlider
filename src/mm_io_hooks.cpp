@@ -1019,7 +1019,8 @@ bool InitializeMmIoHooks(const MmIoConfig& config)
     }
     if (!mmIoConsumer.Initialize(
             config.shared_memory_name,
-            mmio::SupportsArcadeSlider | mmio::SupportsGamepadDualStick))
+            mmio::SupportsArcadeSlider | mmio::SupportsGamepadDualStick,
+            config.max_input_lease_ms))
     {
         joyShockFrontend.Shutdown();
         sliderModeResolver.Reset();

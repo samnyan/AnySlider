@@ -40,7 +40,7 @@ public:
         bool source_active = false;
     };
 
-    bool Initialize(std::wstring_view name, uint32_t capabilities);
+    bool Initialize(std::wstring_view name, uint32_t capabilities, uint64_t leaseMs);
     void Shutdown();
     bool ReadFrame(InputFrame& frame, uint64_t maxLeaseMs);
 
