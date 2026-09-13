@@ -343,61 +343,65 @@ MmIoJoyShockFrame MmIoJoyShockFrontend::Consume()
     frame.stick_rx = LoadFloat(stickRXBits_);
     frame.stick_ry = LoadFloat(stickRYBits_);
     frame.gamepad_slide = currentGamepadSlide_.load(std::memory_order_acquire);
-    UpdateMmIoSliderContact(
-        left_contact_,
-        (frame.gamepad_slide & MmIoSlideLeft1) != 0,
-        (frame.gamepad_slide & MmIoSlideRight1) != 0,
-        deltaSeconds,
-        arcade_slider_cells_per_second_,
-        true,
-        0.0f,
-        16.0f);
-    UpdateMmIoSliderContact(
-        right_contact_,
-        (frame.gamepad_slide & MmIoSlideLeft2) != 0,
-        (frame.gamepad_slide & MmIoSlideRight2) != 0,
-        deltaSeconds,
-        arcade_slider_cells_per_second_,
-        true,
-        16.0f,
-        32.0f);
-    if ((frame.gamepad_slide & (MmIoSlideLeft1 | MmIoSlideRight1)) != 0)
+    if (slider_mode_ == MmIoSliderMode::Arcade)
     {
-        const auto cell = static_cast<uint32_t>(
-            std::floor(left_contact_.position));
-        frame.arcade_touch_cells[cell] = 1;
-        if (debug_left_arcade_cell_ != static_cast<int>(cell))
+        // 只有 Arcade 模式才把摇杆轨迹转换成 32 个 slider cell。
+        UpdateMmIoSliderContact(
+            left_contact_,
+            (frame.gamepad_slide & MmIoSlideLeft1) != 0,
+            (frame.gamepad_slide & MmIoSlideRight1) != 0,
+            deltaSeconds,
+            arcade_slider_cells_per_second_,
+            true,
+            0.0f,
+            16.0f);
+        UpdateMmIoSliderContact(
+            right_contact_,
+            (frame.gamepad_slide & MmIoSlideLeft2) != 0,
+            (frame.gamepad_slide & MmIoSlideRight2) != 0,
+            deltaSeconds,
+            arcade_slider_cells_per_second_,
+            true,
+            16.0f,
+            32.0f);
+        if ((frame.gamepad_slide & (MmIoSlideLeft1 | MmIoSlideRight1)) != 0)
         {
-            DebugLog(
-                "Gamepad ArcadeSlider candidate: stick=1 cell=%u position=%.2f slide=0x%X",
-                cell,
-                left_contact_.position,
-                frame.gamepad_slide);
-            debug_left_arcade_cell_ = static_cast<int>(cell);
+            const auto cell = static_cast<uint32_t>(
+                std::floor(left_contact_.position));
+            frame.arcade_touch_cells[cell] = 1;
+            if (debug_left_arcade_cell_ != static_cast<int>(cell))
+            {
+                DebugLog(
+                    "Gamepad ArcadeSlider candidate: stick=1 cell=%u position=%.2f slide=0x%X",
+                    cell,
+                    left_contact_.position,
+                    frame.gamepad_slide);
+                debug_left_arcade_cell_ = static_cast<int>(cell);
+            }
         }
-    }
-    else
-    {
-        debug_left_arcade_cell_ = -1;
-    }
-    if ((frame.gamepad_slide & (MmIoSlideLeft2 | MmIoSlideRight2)) != 0)
-    {
-        const auto cell = static_cast<uint32_t>(
-            std::floor(right_contact_.position));
-        frame.arcade_touch_cells[cell] = 1;
-        if (debug_right_arcade_cell_ != static_cast<int>(cell))
+        else
         {
-            DebugLog(
-                "Gamepad ArcadeSlider candidate: stick=2 cell=%u position=%.2f slide=0x%X",
-                cell,
-                right_contact_.position,
-                frame.gamepad_slide);
-            debug_right_arcade_cell_ = static_cast<int>(cell);
+            debug_left_arcade_cell_ = -1;
         }
-    }
-    else
-    {
-        debug_right_arcade_cell_ = -1;
+        if ((frame.gamepad_slide & (MmIoSlideLeft2 | MmIoSlideRight2)) != 0)
+        {
+            const auto cell = static_cast<uint32_t>(
+                std::floor(right_contact_.position));
+            frame.arcade_touch_cells[cell] = 1;
+            if (debug_right_arcade_cell_ != static_cast<int>(cell))
+            {
+                DebugLog(
+                    "Gamepad ArcadeSlider candidate: stick=2 cell=%u position=%.2f slide=0x%X",
+                    cell,
+                    right_contact_.position,
+                    frame.gamepad_slide);
+                debug_right_arcade_cell_ = static_cast<int>(cell);
+            }
+        }
+        else
+        {
+            debug_right_arcade_cell_ = -1;
+        }
     }
     return frame;
 }
