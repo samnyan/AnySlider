@@ -37,6 +37,7 @@ constexpr size_t RightStickYAnalogIndex = 0x17;
 constexpr uint32_t DualSenseControllerType = 3;
 constexpr uint32_t DualShock4ControllerType = 2;
 constexpr uint32_t NintendoControllerType = 4;
+constexpr uint32_t NoControllerType = 11;
 
 using MergeSliderSensorButtons = int64_t(__fastcall*)(void* state, void* sensorState);
 using MergeConnectedDevice = int64_t(__fastcall*)(void* state, void* deviceState, uint32_t playerIndex);
@@ -860,12 +861,28 @@ int64_t __fastcall MergeSelectedDeviceHook(
         static_cast<uint8_t*>(state)[InputSelectedDevicePresentOffset] = 1;
     }
 
-    // 11 是无设备
-    const uint32_t nativeType = selectedDeviceType ? *selectedDeviceType : 11;
-    if (playerIndex == 0 &&
-        (mmIoConfig.exclusive_controller_input || nativeType == 11))
+    const uint32_t nativeType = selectedDeviceType
+        ? *selectedDeviceType
+        : NoControllerType;
+    bool useVirtualController = false;
+    if (mmIoConfig.exclusive_controller_input)
     {
-        // 开启独占输入之后，使用当前输入布局
+        // 独占输入时，不再使用游戏自己的控制器类型。
+        useVirtualController = true;
+    }
+    if (acceptedInputFrame.active)
+    {
+        // AnySlider 当前帧有输入时，使用它对应的虚拟控制器布局。
+        useVirtualController = true;
+    }
+    if (nativeType == NoControllerType)
+    {
+        // 游戏没有设备时，仍需要给输入状态一个明确的控制器类型。
+        useVirtualController = true;
+    }
+
+    if (playerIndex == 0 && useVirtualController)
+    {
         const uint32_t controllerType = virtualControllerType.load(std::memory_order_acquire);
         if (selectedDeviceType)
         {
@@ -873,7 +890,7 @@ int64_t __fastcall MergeSelectedDeviceHook(
         }
         return controllerType;
     }
-    if (playerIndex == 0 && result == 11 && nativeType != 11)
+    if (playerIndex == 0 && result == NoControllerType && nativeType != NoControllerType)
     {
         // 特殊情况，防止11类型返回，游戏会认为没有任何设备
         return nativeType;
