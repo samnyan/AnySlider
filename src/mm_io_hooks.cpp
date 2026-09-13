@@ -153,6 +153,17 @@ void MergeTouchCells(
     }
 }
 
+void ExpandTouchMask(
+    uint32_t mask,
+    uint8_t (&cells)[mmio::kTouchCellCount])
+{
+    for (uint32_t cell = 0; cell < mmio::kTouchCellCount; ++cell)
+    {
+        // 从左到右是0到31
+        cells[cell] = static_cast<uint8_t>((mask & (1u << cell)) != 0);
+    }
+}
+
 void* FindSignature(const char* bytes, const char* mask)
 {
     const MODULEINFO& module = getModuleInfo();
@@ -162,19 +173,19 @@ void* FindSignature(const char* bytes, const char* mask)
 uint64_t MapGamepadSlide(uint32_t slideHeld)
 {
     uint64_t result = 0;
-    if (slideHeld & mmio::SlideLeft1)
+    if (slideHeld & MmIoSlideLeft1)
     {
         result |= 1ull << 26;
     }
-    if (slideHeld & mmio::SlideRight1)
+    if (slideHeld & MmIoSlideRight1)
     {
         result |= 1ull << 27;
     }
-    if (slideHeld & mmio::SlideLeft2)
+    if (slideHeld & MmIoSlideLeft2)
     {
         result |= 1ull << 30;
     }
-    if (slideHeld & mmio::SlideRight2)
+    if (slideHeld & MmIoSlideRight2)
     {
         result |= 1ull << 31;
     }
@@ -343,18 +354,16 @@ void DebugLogSharedMemoryButtons(const MmIoConsumer::InputFrame& frame)
         if (mmio::IsGameButtonDown(frame.gamebtn_tapped, entry.action))
         {
             DebugLog(
-                "Shared memory button: mode=%s source=0x%08X action=%s(%u) down",
+                "Shared memory button: mode=%s action=%s(%u) down",
                 SharedMemoryModeName(frame.snapshot.mode),
-                frame.snapshot.source_id,
                 entry.name,
                 entry.action);
         }
         if (mmio::IsGameButtonDown(frame.gamebtn_released, entry.action))
         {
             DebugLog(
-                "Shared memory button: mode=%s source=0x%08X action=%s(%u) up",
+                "Shared memory button: mode=%s action=%s(%u) up",
                 SharedMemoryModeName(frame.snapshot.mode),
-                frame.snapshot.source_id,
                 entry.name,
                 entry.action);
         }
@@ -369,6 +378,8 @@ void RefreshAcceptedInputFrame()
     const bool externalActive = externalFrame.source_active;
     const MmIoKeyboardFrame keyboardFrame = keyboardFrontend.Poll();
     const mmio::InputSnapshot& keyboardSnapshot = keyboardFrame.snapshot;
+    uint8_t keyboardTouchCells[mmio::kTouchCellCount]{};
+    ExpandTouchMask(keyboardSnapshot.touch_mask, keyboardTouchCells);
     const bool keyboardActive = keyboardFrontend.IsEnabled();
     MmIoJoyShockFrame controllerFrame{};
     bool controllerInputActive = false;
@@ -456,13 +467,13 @@ void RefreshAcceptedInputFrame()
     const auto externalMode = externalActive
         ? static_cast<mmio::Mode>(externalFrame.snapshot.mode)
         : mmio::Mode::None;
+    uint8_t externalTouchCells[mmio::kTouchCellCount]{};
+    ExpandTouchMask(externalFrame.snapshot.touch_mask, externalTouchCells);
     const bool externalArcadeActive =
         externalMode == mmio::Mode::ArcadeSlider &&
-        HasMmIoSliderTouch(externalFrame.snapshot.touch_cells);
-    const uint32_t externalGamepadSlide =
-        externalMode == mmio::Mode::GamepadDualStick
-            ? externalFrame.snapshot.gamepad_slide
-            : 0;
+        externalFrame.snapshot.touch_mask != 0;
+    const uint32_t externalGamepadSlide = GetExternalSliderDirection(
+        externalFrame.snapshot);
     const bool keyboardDirectTouchActive =
         HasMmIoSliderTouch(keyboardFrame.direct_touch_cells);
     const bool controllerDirectTouchActive =
@@ -515,13 +526,13 @@ void RefreshAcceptedInputFrame()
         {
             MergeTouchCells(
                 acceptedInputFrame.touch_cells,
-                externalFrame.snapshot.touch_cells);
+                externalTouchCells);
         }
         if (keyboardActive)
         {
             MergeTouchCells(
                 acceptedInputFrame.touch_cells,
-                keyboardSnapshot.touch_cells);
+                keyboardTouchCells);
         }
         if (controllerInputActive)
         {

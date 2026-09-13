@@ -34,14 +34,18 @@ int64_t ReadSequence(const volatile int64_t* sequence)
     return InterlockedCompareExchange64(const_cast<volatile int64_t*>(sequence), 0, 0);
 }
 
+void WriteHeartbeat(uint64_t& heartbeatMs, uint64_t nowMs)
+{
+    InterlockedExchange64(reinterpret_cast<volatile int64_t*>(&heartbeatMs),
+        static_cast<int64_t>(nowMs));
+}
+
 bool HasAnyGameButton(const uint64_t (&gamebtn)[mmio::kGameButtonWordCount])
 {
     for (uint32_t word = 0; word < mmio::kGameButtonWordCount; ++word)
     {
         if (gamebtn[word] != 0)
-        {
             return true;
-        }
     }
     return false;
 }
@@ -58,22 +62,57 @@ void ClearGameButtons(uint64_t (&gamebtn)[mmio::kGameButtonWordCount])
     std::memset(gamebtn, 0, sizeof(gamebtn));
 }
 
-void ApplyGameButtonEvent(
-    uint64_t (&down)[mmio::kGameButtonWordCount],
-    const uint64_t (&pressed)[mmio::kGameButtonWordCount],
-    const uint64_t (&released)[mmio::kGameButtonWordCount])
+void GetSnapshotGameButtons(
+    const mmio::InputSnapshot& snapshot,
+    uint64_t (&gamebtn)[mmio::kGameButtonWordCount])
+{
+    if (snapshot.mode == static_cast<uint32_t>(mmio::Mode::None))
+        // None时清理按键状态
+        ClearGameButtons(gamebtn);
+    else
+        CopyGameButtons(gamebtn, snapshot.gamebtn);
+}
+
+/// <summary>
+/// 读取指定序列的slot，防止在读的时候刚好被写入
+/// </summary>
+/// <returns>读取的是否是想要的那个序列</returns>
+bool TryReadInputSlot(
+    const mmio::SharedBuffer& buffer,
+    int64_t expectedSequence,
+    mmio::InputSnapshot& result)
+{
+    const auto& slot = buffer.inputs[mmio::InputSlotIndex(expectedSequence)];
+    // 先检查读回是不是想要的序列
+    const int64_t before = ReadSequence(&slot.sequence);
+    if (before != expectedSequence)
+        return false;
+
+    std::memcpy(&result, &slot.input, sizeof(result));
+    MemoryBarrier();
+
+    // 再检查一次读回的序列，确保在读的时候不会刚好在写入这个slot
+    return ReadSequence(&slot.sequence) == expectedSequence;
+}
+
+// 对上一次按键和这次最新snapshot进行差分
+void SetNetButtonDiff(
+    MmIoConsumer::InputFrame& frame,
+    const uint64_t (&before)[mmio::kGameButtonWordCount],
+    const uint64_t (&after)[mmio::kGameButtonWordCount])
 {
     for (uint32_t word = 0; word < mmio::kGameButtonWordCount; ++word)
     {
-        down[word] |= pressed[word];
-        down[word] &= ~released[word];
+        frame.gamebtn_tapped[word] = after[word] & ~before[word];
+        frame.gamebtn_released[word] = before[word] & ~after[word];
+        frame.gamebtn_down[word] = after[word];
     }
 }
 }
 
-uint64_t MmIoNowMicroseconds()
+uint64_t MmIoNowMilliseconds()
 {
-    return GetTickCount64() * 1000;
+    return GetTickCount64();
 }
 
 MmIoSharedMemory::~MmIoSharedMemory()
@@ -115,9 +154,7 @@ bool MmIoSharedMemory::OpenOrCreate(std::wstring_view name, uint32_t capabilitie
     }
 
     if (created)
-    {
         InitializeBuffer(*buffer, capabilities);
-    }
     else if (!IsCompatible(*buffer))
     {
         Log("MMIO shared memory ABI is incompatible.");
@@ -158,16 +195,15 @@ mmio::SharedBuffer* MmIoSharedMemory::Get() const
 bool MmIoConsumer::Initialize(std::wstring_view name, uint32_t capabilities)
 {
     if (!shared_memory_.OpenOrCreate(name, capabilities))
-    {
         return false;
-    }
 
     auto& endpoint = shared_memory_.Get()->hook;
+    const uint64_t nowMs = MmIoNowMilliseconds();
     endpoint.process_id = GetCurrentProcessId();
     endpoint.protocol_major = mmio::kAbiMajor;
     endpoint.protocol_minor = mmio::kAbiMinor;
-    endpoint.started_us = MmIoNowMicroseconds();
-    endpoint.heartbeat_us = endpoint.started_us;
+    endpoint.started_ms = nowMs;
+    WriteHeartbeat(endpoint.heartbeat_ms, nowMs);
     ResetButtonState();
     return true;
 }
@@ -180,18 +216,16 @@ void MmIoConsumer::Shutdown()
 
 void MmIoConsumer::ResetButtonState()
 {
-    last_event_sequence_ = 0;
+    last_input_sequence_ = 0;
     ResetSourceState();
 }
 
 void MmIoConsumer::ResetSourceState()
 {
-    ClearGameButtons(gamebtn_down_);
-    source_id_ = 0;
-    producer_started_us_ = 0;
-    source_was_active_ = false;
+    ClearGameButtons(accepted_gamebtn_down_);
+    producer_process_id_ = 0;
+    producer_started_ms_ = 0;
     overflow_logged_ = false;
-    pending_source_resync_ = false;
 }
 
 bool MmIoConsumer::ReadFrame(InputFrame& frame, uint64_t maxLeaseMs)
@@ -199,276 +233,185 @@ bool MmIoConsumer::ReadFrame(InputFrame& frame, uint64_t maxLeaseMs)
     frame = {};
     auto* buffer = shared_memory_.Get();
     if (!buffer)
-    {
         return false;
-    }
 
-    auto& hook = buffer->hook;
-    hook.heartbeat_us = MmIoNowMicroseconds();
-    bool sourceExpired = false;
-    int64_t expiredEventSequence = last_event_sequence_;
+    // 写入时间戳和基础信息
+    const uint64_t nowMs = MmIoNowMilliseconds();
+    WriteHeartbeat(buffer->hook.heartbeat_ms, nowMs);
+    const uint32_t processId = buffer->producer.process_id;
+    const uint64_t startedMs = buffer->producer.started_ms;
 
-    for (int attempt = 0; attempt != 3; ++attempt)
+    // sessionChanged 是外部输入程序变了
+    const bool sessionChanged = processId != producer_process_id_ || startedMs != producer_started_ms_;
+    if (sessionChanged)
     {
-        const int64_t firstSequence = ReadSequence(&buffer->input_sequence);
-        if (firstSequence & 1)
-        {
-            continue;
-        }
+        producer_process_id_ = processId;
+        producer_started_ms_ = startedMs;
+        last_input_sequence_ = 0;
+        overflow_logged_ = false;
 
-        mmio::InputSnapshot candidate{};
-        std::memcpy(&candidate, &buffer->input, sizeof(candidate));
-        const int64_t publishedEventSequence = ReadSequence(
-            &buffer->button_event_sequence);
-        MemoryBarrier();
-        const int64_t secondSequence = ReadSequence(&buffer->input_sequence);
-        if (firstSequence != secondSequence || (secondSequence & 1))
+        // 把之前hold的按钮全部release
+        if (HasAnyGameButton(accepted_gamebtn_down_))
         {
-            continue;
-        }
-
-        const uint64_t nowUs = MmIoNowMicroseconds();
-        if (candidate.mode > static_cast<uint32_t>(mmio::Mode::GamepadDualStick) ||
-            candidate.lease_ms == 0 || candidate.lease_ms > maxLeaseMs ||
-            candidate.timestamp_us > nowUs ||
-            nowUs - candidate.timestamp_us > candidate.lease_ms * 1000)
-        {
-            sourceExpired = true;
-            expiredEventSequence = publishedEventSequence;
-            break;
-        }
-
-        frame.snapshot = candidate;
-        InterlockedExchange64(&hook.input_sequence, secondSequence);
-        if (candidate.mode == static_cast<uint32_t>(mmio::Mode::None))
-        {
-            sourceExpired = true;
-            expiredEventSequence = publishedEventSequence;
-            break;
-        }
-
-        frame.source_active = true;
-        const uint64_t producerStartedUs = buffer->producer.started_us;
-        const bool sourceChanged = !source_was_active_ ||
-            source_id_ != candidate.source_id ||
-            producer_started_us_ != producerStartedUs;
-        if (sourceChanged)
-        {
-            CopyGameButtons(frame.gamebtn_released, gamebtn_down_);
-            ClearGameButtons(gamebtn_down_);
-            source_id_ = candidate.source_id;
-            producer_started_us_ = producerStartedUs;
-            source_was_active_ = true;
-            overflow_logged_ = false;
-        }
-
-        if (HasAnyGameButton(frame.gamebtn_released))
-        {
-            pending_source_resync_ = true;
-            CopyGameButtons(frame.gamebtn_down, gamebtn_down_);
+            CopyGameButtons(frame.gamebtn_released, accepted_gamebtn_down_);
+            ClearGameButtons(accepted_gamebtn_down_);
             return true;
         }
 
-        if (publishedEventSequence < last_event_sequence_)
-        {
-            last_event_sequence_ = publishedEventSequence;
-            CopyGameButtons(gamebtn_down_, candidate.gamebtn);
-            if (pending_source_resync_ || (sourceChanged && HasAnyGameButton(candidate.gamebtn)))
-            {
-                CopyGameButtons(frame.gamebtn_tapped, candidate.gamebtn);
-            }
-            pending_source_resync_ = false;
-        }
-        else if (publishedEventSequence - last_event_sequence_ > mmio::kButtonEventCapacity)
-        {
-            if (!overflow_logged_)
-            {
-                Log("MMIO button event queue overflow; resynchronizing gamebtn state.");
-                overflow_logged_ = true;
-            }
-            last_event_sequence_ = publishedEventSequence;
-            CopyGameButtons(gamebtn_down_, candidate.gamebtn);
-            InterlockedExchange64(&hook.event_sequence, last_event_sequence_);
-            if (pending_source_resync_ || (sourceChanged && HasAnyGameButton(candidate.gamebtn)))
-            {
-                CopyGameButtons(frame.gamebtn_tapped, candidate.gamebtn);
-            }
-            pending_source_resync_ = false;
-        }
-        else
-        {
-            // Drain every event published before this input check. The queue
-            // preserves sub-frame edges, but must not serialize independent
-            // buttons across multiple game input checks.
-            bool consumedAllPublishedEvents = true;
-            while (last_event_sequence_ < publishedEventSequence)
-            {
-                const int64_t expectedSequence = last_event_sequence_ + 1;
-                const auto& slot = buffer->button_events[
-                    static_cast<uint64_t>(expectedSequence) % mmio::kButtonEventCapacity];
-                mmio::ButtonEvent event{};
-                std::memcpy(&event, &slot, sizeof(event));
-                MemoryBarrier();
-                if (ReadSequence(&slot.sequence) != expectedSequence)
-                {
-                    consumedAllPublishedEvents = false;
-                    break;
-                }
-
-                last_event_sequence_ = expectedSequence;
-                InterlockedExchange64(&hook.event_sequence, last_event_sequence_);
-                if (event.source_id != candidate.source_id ||
-                    event.mode != candidate.mode ||
-                    event.producer_started_us != producerStartedUs)
-                {
-                    continue;
-                }
-
-                // Both one event containing many bits and many events between
-                // checks are delivered in this one frame.
-                for (uint32_t word = 0; word < mmio::kGameButtonWordCount; ++word)
-                {
-                    frame.gamebtn_tapped[word] |= event.gamebtn_pressed[word];
-                    frame.gamebtn_released[word] |= event.gamebtn_released[word];
-                }
-                ApplyGameButtonEvent(
-                    gamebtn_down_,
-                    event.gamebtn_pressed,
-                    event.gamebtn_released);
-            }
-
-            // The snapshot is authoritative for the current held level. The
-            // event stream remains responsible for preserving transient edges.
-            if (consumedAllPublishedEvents)
-            {
-                CopyGameButtons(gamebtn_down_, candidate.gamebtn);
-            }
-
-            const bool resyncSnapshot = pending_source_resync_ ||
-                (sourceChanged && !HasAnyGameButton(frame.gamebtn_tapped) &&
-                    HasAnyGameButton(candidate.gamebtn));
-            if (resyncSnapshot)
-            {
-                for (uint32_t word = 0; word < mmio::kGameButtonWordCount; ++word)
-                {
-                    frame.gamebtn_tapped[word] |= candidate.gamebtn[word];
-                    gamebtn_down_[word] |= candidate.gamebtn[word];
-                }
-                pending_source_resync_ = false;
-            }
-        }
-
-        CopyGameButtons(frame.gamebtn_down, gamebtn_down_);
-        return true;
-    }
-
-    if (!sourceExpired)
-    {
+        // 下一轮再读取
         return false;
     }
 
-    const bool hadHeldButtons = HasAnyGameButton(gamebtn_down_);
-    if (hadHeldButtons)
+    const int64_t latestSequence = ReadSequence(&buffer->input_sequence);
+    if (latestSequence <= 0)
     {
-        CopyGameButtons(frame.gamebtn_released, gamebtn_down_);
+        // 无任何输入，同样把之前hold的按钮全部release
+        const bool hadHeldButtons = HasAnyGameButton(accepted_gamebtn_down_);
+        if (hadHeldButtons)
+            CopyGameButtons(frame.gamebtn_released, accepted_gamebtn_down_);
+        ClearGameButtons(accepted_gamebtn_down_);
+        last_input_sequence_ = 0;
+        return hadHeldButtons;
     }
 
-    // Events already published by an expired source belong to the discarded
-    // lease interval and must not be replayed if the same session resumes.
-    last_event_sequence_ = expiredEventSequence;
-    InterlockedExchange64(&hook.event_sequence, last_event_sequence_);
-    ResetSourceState();
-    return hadHeldButtons;
+    mmio::InputSnapshot latestSnapshot{};
+    if (!TryReadInputSlot(*buffer, latestSequence, latestSnapshot))
+        return false;
+
+    // 检查输入
+    const bool validMode = latestSnapshot.mode <= static_cast<uint32_t>(mmio::Mode::GamepadDualStick);
+    const bool validTime = maxLeaseMs != 0 && latestSnapshot.timestamp_ms <= nowMs && nowMs - latestSnapshot.timestamp_ms <= maxLeaseMs;
+    const bool inactive = latestSnapshot.mode == static_cast<uint32_t>(mmio::Mode::None);
+
+    if (!validMode || !validTime || inactive)
+    {
+        const bool hadHeldButtons = HasAnyGameButton(accepted_gamebtn_down_);
+        if (hadHeldButtons)
+            CopyGameButtons(frame.gamebtn_released, accepted_gamebtn_down_);
+        ClearGameButtons(accepted_gamebtn_down_);
+        last_input_sequence_ = latestSequence;
+        return hadHeldButtons;
+    }
+
+    // 防止seq回退，有可能是外部输入程序重启了
+    if (latestSequence < last_input_sequence_)
+    {
+        const bool hadHeldButtons = HasAnyGameButton(accepted_gamebtn_down_);
+        if (hadHeldButtons)
+            CopyGameButtons(frame.gamebtn_released, accepted_gamebtn_down_);
+        ClearGameButtons(accepted_gamebtn_down_);
+        last_input_sequence_ = 0;
+        return hadHeldButtons;
+    }
+
+    frame.snapshot = latestSnapshot;
+    frame.source_active = true;
+    uint64_t latestButtons[mmio::kGameButtonWordCount]{};
+    GetSnapshotGameButtons(latestSnapshot, latestButtons);
+
+    const bool overflow = latestSequence - last_input_sequence_ > mmio::kInputCapacity;
+    // 距离上次读取超过了array容量，有一部分的snapshot应该已经被覆盖了
+    if (overflow)
+    {
+        if (!overflow_logged_)
+        {
+            Log("MMIO snapshot ring overflow; resynchronizing to latest input.");
+            overflow_logged_ = true;
+        }
+        // 直接用上次和这次的差分
+        SetNetButtonDiff(frame, accepted_gamebtn_down_, latestButtons);
+        CopyGameButtons(accepted_gamebtn_down_, latestButtons);
+        last_input_sequence_ = latestSequence;
+        return true;
+    }
+
+    uint64_t localDown[mmio::kGameButtonWordCount]{};
+    CopyGameButtons(localDown, accepted_gamebtn_down_);
+    uint64_t tapped[mmio::kGameButtonWordCount]{};
+    uint64_t released[mmio::kGameButtonWordCount]{};
+    // 读取中间所有的snapshot，不会遗漏两次查询之间的按键变化
+    for (int64_t sequence = last_input_sequence_ + 1; sequence <= latestSequence; ++sequence)
+    {
+        mmio::InputSnapshot snapshot{};
+        if (!TryReadInputSlot(*buffer, sequence, snapshot))
+        {
+            // 读到的不是需要的sequence，说明在追赶的时候中间已经被写入了。
+            if (!overflow_logged_)
+            {
+                Log("MMIO snapshot ring changed while reading; resynchronizing to latest input.");
+                overflow_logged_ = true;
+            }
+            SetNetButtonDiff(frame, accepted_gamebtn_down_, latestButtons);
+            CopyGameButtons(accepted_gamebtn_down_, latestButtons);
+            last_input_sequence_ = latestSequence;
+            return true;
+        }
+
+        uint64_t currentDown[mmio::kGameButtonWordCount]{};
+        GetSnapshotGameButtons(snapshot, currentDown);
+        for (uint32_t word = 0; word < mmio::kGameButtonWordCount; ++word)
+        {
+            // 可以保证每次poll之间不会丢失按下和释放的状态，但如果按了多次就没法保留了。
+            tapped[word] |= currentDown[word] & ~localDown[word];
+            released[word] |= localDown[word] & ~currentDown[word];
+            localDown[word] = currentDown[word];
+        }
+    }
+
+    // 最后提交
+    CopyGameButtons(frame.gamebtn_tapped, tapped);
+    CopyGameButtons(frame.gamebtn_released, released);
+    CopyGameButtons(frame.gamebtn_down, localDown);
+    CopyGameButtons(accepted_gamebtn_down_, localDown);
+    last_input_sequence_ = latestSequence;
+    overflow_logged_ = false;
+    return true;
 }
 
 bool MmIoPublisher::Initialize(std::wstring_view name, uint32_t capabilities)
 {
     if (!shared_memory_.OpenOrCreate(name, capabilities))
-    {
         return false;
-    }
 
-    auto& endpoint = shared_memory_.Get()->producer;
+    auto* buffer = shared_memory_.Get();
+    auto& endpoint = buffer->producer;
+    const uint64_t nowMs = MmIoNowMilliseconds();
     endpoint.process_id = GetCurrentProcessId();
     endpoint.protocol_major = mmio::kAbiMajor;
     endpoint.protocol_minor = mmio::kAbiMinor;
-    endpoint.started_us = MmIoNowMicroseconds();
-    endpoint.heartbeat_us = endpoint.started_us;
-    ClearGameButtons(last_gamebtn_);
-    has_published_snapshot_ = false;
+    endpoint.started_ms = nowMs;
+    WriteHeartbeat(endpoint.heartbeat_ms, nowMs);
+
+    // A new producer session never exposes snapshots from the previous owner.
+    InterlockedExchange64(&buffer->input_sequence, 0);
+    for (auto& slot : buffer->inputs)
+        InterlockedExchange64(&slot.sequence, 0);
     return true;
 }
 
 void MmIoPublisher::Shutdown()
 {
     shared_memory_.Close();
-    ClearGameButtons(last_gamebtn_);
-    has_published_snapshot_ = false;
 }
 
 bool MmIoPublisher::Publish(const mmio::InputSnapshot& snapshot)
 {
     auto* buffer = shared_memory_.Get();
     if (!buffer)
-    {
         return false;
-    }
 
-    const int64_t currentSequence = ReadSequence(&buffer->input_sequence);
-    if (currentSequence & 1)
-    {
-        return false;
-    }
+    const int64_t nextSequence = ReadSequence(&buffer->input_sequence) + 1;
+    auto& slot = buffer->inputs[mmio::InputSlotIndex(nextSequence)];
 
-    uint64_t pressed[mmio::kGameButtonWordCount]{};
-    uint64_t released[mmio::kGameButtonWordCount]{};
-    bool changed = false;
-    for (uint32_t word = 0; word < mmio::kGameButtonWordCount; ++word)
-    {
-        const uint64_t previous = has_published_snapshot_ ? last_gamebtn_[word] : 0;
-        pressed[word] = snapshot.gamebtn[word] & ~previous;
-        released[word] = previous & ~snapshot.gamebtn[word];
-        changed = changed || pressed[word] != 0 || released[word] != 0;
-    }
-
-    InterlockedExchange64(&buffer->input_sequence, currentSequence + 1);
+    // Hide the slot before overwriting it so a wrapping reader rejects it.
+    InterlockedExchange64(&slot.sequence, 0);
     MemoryBarrier();
-    std::memcpy(&buffer->input, &snapshot, sizeof(snapshot));
-    if (changed)
-    {
-        const int64_t nextEventSequence =
-            ReadSequence(&buffer->button_event_sequence) + 1;
-        auto& event = buffer->button_events[
-            static_cast<uint64_t>(nextEventSequence) % mmio::kButtonEventCapacity];
-        event.source_id = snapshot.source_id;
-        event.mode = snapshot.mode;
-        CopyGameButtons(event.gamebtn_pressed, pressed);
-        CopyGameButtons(event.gamebtn_released, released);
-        event.producer_started_us = buffer->producer.started_us;
-        event.timestamp_us = snapshot.timestamp_us;
-        MemoryBarrier();
-        InterlockedExchange64(&event.sequence, nextEventSequence);
-        MemoryBarrier();
-        InterlockedExchange64(&buffer->button_event_sequence, nextEventSequence);
-    }
-    buffer->producer.heartbeat_us = MmIoNowMicroseconds();
+    std::memcpy(&slot.input, &snapshot, sizeof(snapshot));
     MemoryBarrier();
-    InterlockedExchange64(&buffer->input_sequence, currentSequence + 2);
-    CopyGameButtons(last_gamebtn_, snapshot.gamebtn);
-    has_published_snapshot_ = true;
+    InterlockedExchange64(&slot.sequence, nextSequence);
+    MemoryBarrier();
+    InterlockedExchange64(&buffer->input_sequence, nextSequence);
+    WriteHeartbeat(buffer->producer.heartbeat_ms, MmIoNowMilliseconds());
     return true;
 }
-
-int64_t MmIoPublisher::LastConsumedSequence() const
-{
-    const auto* buffer = shared_memory_.Get();
-    return buffer ? ReadSequence(&buffer->hook.input_sequence) : 0;
-}
-
-int64_t MmIoPublisher::LastConsumedEventSequence() const
-{
-    const auto* buffer = shared_memory_.Get();
-    return buffer ? ReadSequence(&buffer->hook.event_sequence) : 0;
-}
-
 }

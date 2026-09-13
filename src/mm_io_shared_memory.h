@@ -6,7 +6,7 @@
 
 namespace anyslider
 {
-uint64_t MmIoNowMicroseconds();
+uint64_t MmIoNowMilliseconds();
 
 class MmIoSharedMemory
 {
@@ -49,13 +49,11 @@ private:
     void ResetSourceState();
 
     MmIoSharedMemory shared_memory_;
-    int64_t last_event_sequence_ = 0;
-    uint64_t gamebtn_down_[mmio::kGameButtonWordCount]{};
-    uint32_t source_id_ = 0;
-    uint64_t producer_started_us_ = 0;
-    bool source_was_active_ = false;
+    int64_t last_input_sequence_ = 0;
+    uint64_t accepted_gamebtn_down_[mmio::kGameButtonWordCount]{};
+    uint32_t producer_process_id_ = 0;
+    uint64_t producer_started_ms_ = 0;
     bool overflow_logged_ = false;
-    bool pending_source_resync_ = false;
 };
 
 class MmIoPublisher
@@ -64,12 +62,7 @@ public:
     bool Initialize(std::wstring_view name, uint32_t capabilities);
     void Shutdown();
     bool Publish(const mmio::InputSnapshot& snapshot);
-    [[nodiscard]] int64_t LastConsumedSequence() const;
-    [[nodiscard]] int64_t LastConsumedEventSequence() const;
-
 private:
     MmIoSharedMemory shared_memory_;
-    uint64_t last_gamebtn_[mmio::kGameButtonWordCount]{};
-    bool has_published_snapshot_ = false;
 };
 }

@@ -231,13 +231,13 @@ MmIoKeyboardFrame MmIoKeyboardMouseFrontend::Poll()
         GetMmIoSliderDirection(
             IsDown(keyboard, bindings_.slider_1_left),
             IsDown(keyboard, bindings_.slider_1_right),
-            mmio::SlideLeft1,
-            mmio::SlideRight1) |
+            MmIoSlideLeft1,
+            MmIoSlideRight1) |
         GetMmIoSliderDirection(
             IsDown(keyboard, bindings_.slider_2_left),
             IsDown(keyboard, bindings_.slider_2_right),
-            mmio::SlideLeft2,
-            mmio::SlideRight2);
+            MmIoSlideLeft2,
+            MmIoSlideRight2);
     if (calculateKeyboardSlider)
     {
         UpdateContact(
@@ -351,7 +351,7 @@ MmIoKeyboardFrame MmIoKeyboardMouseFrontend::Poll()
     if (leftContactActive)
     {
         const auto sensor = static_cast<unsigned int>(std::floor(left_contact_.movement.position));
-        snapshot.touch_cells[sensor] = 1;
+        snapshot.touch_mask |= 1u << sensor;
         if (debug_left_arcade_cell_ != static_cast<int>(sensor))
         {
             DebugLog(
@@ -373,7 +373,7 @@ MmIoKeyboardFrame MmIoKeyboardMouseFrontend::Poll()
     if (rightContactActive)
     {
         const auto sensor = static_cast<unsigned int>(std::floor(right_contact_.movement.position));
-        snapshot.touch_cells[sensor] = 1;
+        snapshot.touch_mask |= 1u << sensor;
         if (debug_right_arcade_cell_ != static_cast<int>(sensor))
         {
             DebugLog(
@@ -397,7 +397,7 @@ MmIoKeyboardFrame MmIoKeyboardMouseFrontend::Poll()
     {
         if (IsDown(keyboard, bindings_.slider_cells[sensor]))
         {
-            snapshot.touch_cells[sensor] = 1;
+            snapshot.touch_mask |= 1u << sensor;
             frame.direct_touch_cells[sensor] = 1;
             for (const int key : bindings_.slider_cells[sensor])
             {
@@ -413,9 +413,7 @@ MmIoKeyboardFrame MmIoKeyboardMouseFrontend::Poll()
         }
     }
 
-    snapshot.source_id = 0x4B424D4D; // MMBK
-    snapshot.timestamp_us = MmIoNowMicroseconds();
-    snapshot.lease_ms = 500;
+    snapshot.timestamp_ms = MmIoNowMilliseconds();
     return frame;
 }
 }

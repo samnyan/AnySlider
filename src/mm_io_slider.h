@@ -12,6 +12,15 @@ enum class MmIoSliderMode
     Joystick,
 };
 
+// Internal slider directions; they are intentionally not part of the MMIO ABI.
+enum MmIoSliderDirection : uint32_t
+{
+    MmIoSlideLeft1 = 1u << 0,
+    MmIoSlideRight1 = 1u << 1,
+    MmIoSlideLeft2 = 1u << 2,
+    MmIoSlideRight2 = 1u << 3,
+};
+
 struct MmIoSliderContact
 {
     float position = 0.0f;
@@ -39,6 +48,8 @@ void UpdateMmIoSliderContact(
     float endPosition);
 
 uint32_t GetMmIoSliderDirection(bool left, bool right, uint32_t leftBit, uint32_t rightBit);
+
+uint32_t GetExternalSliderDirection(const mmio::InputSnapshot& snapshot);
 
 class MmIoSliderModeResolver
 {

@@ -86,6 +86,23 @@ uint32_t GetMmIoSliderDirection(bool left, bool right, uint32_t leftBit, uint32_
     return left ? leftBit : rightBit;
 }
 
+uint32_t GetExternalSliderDirection(const mmio::InputSnapshot& snapshot)
+{
+    if (snapshot.mode != static_cast<uint32_t>(mmio::Mode::GamepadDualStick))
+        return 0;
+
+    uint32_t result = 0;
+    if (mmio::IsGameButtonDown(snapshot.gamebtn, mmio::Stick1Left))
+        result |= MmIoSlideLeft1;
+    if (mmio::IsGameButtonDown(snapshot.gamebtn, mmio::Stick1Right))
+        result |= MmIoSlideRight1;
+    if (mmio::IsGameButtonDown(snapshot.gamebtn, mmio::Stick2Left))
+        result |= MmIoSlideLeft2;
+    if (mmio::IsGameButtonDown(snapshot.gamebtn, mmio::Stick2Right))
+        result |= MmIoSlideRight2;
+    return result;
+}
+
 void MmIoSliderModeResolver::Initialize(MmIoSliderMode configuredMode)
 {
     configured_mode_ = configuredMode;

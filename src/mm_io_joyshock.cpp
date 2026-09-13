@@ -163,19 +163,19 @@ uint32_t MapStickSlider(const MmIoGamepadConfig& config, JOY_SHOCK_STATE state)
     uint32_t result = 0;
     if (IsAxisNegative(state.stickLX, config.stick_slider_deadzone))
     {
-        result |= mmio::SlideLeft1;
+        result |= MmIoSlideLeft1;
     }
     else if (IsAxisPositive(state.stickLX, config.stick_slider_deadzone))
     {
-        result |= mmio::SlideRight1;
+        result |= MmIoSlideRight1;
     }
     if (IsAxisNegative(state.stickRX, config.stick_slider_deadzone))
     {
-        result |= mmio::SlideLeft2;
+        result |= MmIoSlideLeft2;
     }
     else if (IsAxisPositive(state.stickRX, config.stick_slider_deadzone))
     {
-        result |= mmio::SlideRight2;
+        result |= MmIoSlideRight2;
     }
     return result;
 }
@@ -341,8 +341,8 @@ MmIoJoyShockFrame MmIoJoyShockFrontend::Consume()
     frame.gamepad_slide = currentGamepadSlide_.load(std::memory_order_acquire);
     UpdateMmIoSliderContact(
         left_contact_,
-        (frame.gamepad_slide & mmio::SlideLeft1) != 0,
-        (frame.gamepad_slide & mmio::SlideRight1) != 0,
+        (frame.gamepad_slide & MmIoSlideLeft1) != 0,
+        (frame.gamepad_slide & MmIoSlideRight1) != 0,
         deltaSeconds,
         arcade_slider_cells_per_second_,
         true,
@@ -350,14 +350,14 @@ MmIoJoyShockFrame MmIoJoyShockFrontend::Consume()
         16.0f);
     UpdateMmIoSliderContact(
         right_contact_,
-        (frame.gamepad_slide & mmio::SlideLeft2) != 0,
-        (frame.gamepad_slide & mmio::SlideRight2) != 0,
+        (frame.gamepad_slide & MmIoSlideLeft2) != 0,
+        (frame.gamepad_slide & MmIoSlideRight2) != 0,
         deltaSeconds,
         arcade_slider_cells_per_second_,
         true,
         16.0f,
         32.0f);
-    if ((frame.gamepad_slide & (mmio::SlideLeft1 | mmio::SlideRight1)) != 0)
+    if ((frame.gamepad_slide & (MmIoSlideLeft1 | MmIoSlideRight1)) != 0)
     {
         const auto cell = static_cast<uint32_t>(
             std::floor(left_contact_.position));
@@ -376,7 +376,7 @@ MmIoJoyShockFrame MmIoJoyShockFrontend::Consume()
     {
         debug_left_arcade_cell_ = -1;
     }
-    if ((frame.gamepad_slide & (mmio::SlideLeft2 | mmio::SlideRight2)) != 0)
+    if ((frame.gamepad_slide & (MmIoSlideLeft2 | MmIoSlideRight2)) != 0)
     {
         const auto cell = static_cast<uint32_t>(
             std::floor(right_contact_.position));
