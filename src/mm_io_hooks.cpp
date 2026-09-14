@@ -79,6 +79,7 @@ thread_local bool debugInjectedSliderInitialized = false;
 thread_local mmio::Mode debugLastInjectedMode = mmio::Mode::None;
 thread_local uint32_t debugLastInjectedValue = 0;
 thread_local bool debugInjectedAxesInitialized = false;
+thread_local bool debugLastInjectedAxesSimulated = false;
 thread_local int32_t debugLastInjectedAxes[4]{};
 thread_local bool debugSharedMemorySnapshotInitialized = false;
 thread_local uint32_t debugLastSharedMemoryMode = 0;
@@ -100,6 +101,7 @@ struct AcceptedInputFrame
     float stick_rx = 0.0f;
     float stick_ry = 0.0f;
     bool axes_active = false;
+    bool simulated_axes = false;
     uint32_t gamepad_slide = 0;
     mmio::Mode slider_mode = mmio::Mode::None;
     bool active = false;
@@ -166,6 +168,7 @@ void SetSimulatedGamepadAxes(AcceptedInputFrame& frame, uint32_t direction)
     frame.stick_ly = 0.0f;
     frame.stick_ry = 0.0f;
     frame.axes_active = true;
+    frame.simulated_axes = true;
 }
 
 bool HasPrimaryButtonTap(
@@ -460,7 +463,10 @@ void RefreshAcceptedInputFrame()
             : DualSenseControllerType,
         std::memory_order_release);
 
+    // 上一帧模拟过轴时，即使本帧没有新 flick，也要写回零轴。
+    const bool clearSimulatedAxes = acceptedInputFrame.simulated_axes;
     acceptedInputFrame = {};
+    acceptedInputFrame.axes_active = clearSimulatedAxes;
     uint64_t providerHeld[mmio::kGameButtonWordCount]{};
     if (externalFrameAvailable)
     {
@@ -553,9 +559,11 @@ void RefreshAcceptedInputFrame()
     const uint32_t directionHeld = externalGamepadSlide |
         (keyboardActive ? keyboardFrame.slider_direction : 0) |
         (controllerInputActive ? controllerFrame.gamepad_slide : 0);
-    if (!controllerInputActive && directionHeld != 0)
+    // 有方向输入或者没有连接手柄时，都通过左右方向模拟摇杆输入
+    const bool directionOnlyInput = externalGamepadSlide != 0 || !controllerInputActive;
+    if (directionOnlyInput && directionHeld != 0)
     {
-        // 键盘和 shared memory 只有方向，先转换成一次完整的虚拟摇杆轴。
+        // 键盘和 shared memory 只有方向，统一转换成完整的虚拟摇杆轴。
         SetSimulatedGamepadAxes(acceptedInputFrame, directionHeld);
     }
     const bool directTouchActive = externalArcadeActive ||
@@ -673,11 +681,62 @@ void RefreshAcceptedInputFrame()
     }
 }
 
+int32_t NativeAxisValue(float value)
+{
+    if (!std::isfinite(value))
+        return 0;
+    return static_cast<int32_t>(std::lround(std::clamp(value, -1.0f, 1.0f) * 1000.0f));
+}
+
+// 注入摇杆轴值，NewClassics会需要
+void InjectAcceptedGamepadAxes(void* state)
+{
+    if (!state || !acceptedInputFrame.axes_active)
+        return;
+
+    const int32_t axes[4] = {
+        NativeAxisValue(acceptedInputFrame.stick_lx),
+        NativeAxisValue(acceptedInputFrame.stick_ly),
+        NativeAxisValue(acceptedInputFrame.stick_rx),
+        NativeAxisValue(acceptedInputFrame.stick_ry),
+    };
+    auto* analog = reinterpret_cast<int32_t*>(
+        static_cast<uint8_t*>(state) + InputAnalogOffset);
+    // 游戏用 1000 倍整数保存摇杆轴，GetPosition 会还原成 -1.0 到 1.0。
+    analog[LeftStickXAnalogIndex] = axes[0];
+    analog[LeftStickYAnalogIndex] = axes[1];
+    analog[RightStickXAnalogIndex] = axes[2];
+    analog[RightStickYAnalogIndex] = axes[3];
+
+    // Reduce log
+    if (acceptedInputFrame.simulated_axes)
+    {
+        if (!debugInjectedAxesInitialized ||
+            !debugLastInjectedAxesSimulated ||
+            std::memcmp(debugLastInjectedAxes, axes, sizeof(axes)) != 0)
+        {
+            DebugLog("Injected gamepad axes: lx=%d ly=%d rx=%d ry=%d simulated=yes", axes[0], axes[1], axes[2], axes[3]);
+        }
+    }
+    else if (debugLastInjectedAxesSimulated)
+    {
+        DebugLog("Injected gamepad axes: lx=%d ly=%d rx=%d ry=%d simulated=clear", axes[0], axes[1], axes[2], axes[3]);
+    }
+    else
+    {
+        return;
+    }
+    std::memcpy(debugLastInjectedAxes, axes, sizeof(axes));
+    debugInjectedAxesInitialized = true;
+    debugLastInjectedAxesSimulated = acceptedInputFrame.simulated_axes;
+}
+
 void InjectAcceptedInput(void* state)
 {
     if (!acceptedInputFrame.active)
     {
         debugInjectedSliderInitialized = false;
+        InjectAcceptedGamepadAxes(state);
         return;
     }
 
@@ -734,28 +793,9 @@ void InjectAcceptedInput(void* state)
     {
         debugInjectedSliderInitialized = false;
     }
-}
 
-int32_t NativeAxisValue(float value)
-{
-    if (!std::isfinite(value))
-        return 0;
-    return static_cast<int32_t>(std::lround(
-        std::clamp(value, -1.0f, 1.0f) * 1000.0f));
-}
-
-// 注入摇杆轴值，NewClassics会需要
-void InjectAcceptedGamepadAxes(void* state)
-{
-    if (!state || !acceptedInputFrame.axes_active)
-        return;
-
-    auto* analog = reinterpret_cast<int32_t*>(static_cast<uint8_t*>(state) + InputAnalogOffset);
-    // 游戏用 1000 倍整数保存摇杆轴，GetPosition 会还原成 -1.0 到 1.0。
-    analog[LeftStickXAnalogIndex] = NativeAxisValue(acceptedInputFrame.stick_lx);
-    analog[LeftStickYAnalogIndex] = NativeAxisValue(acceptedInputFrame.stick_ly);
-    analog[RightStickXAnalogIndex] = NativeAxisValue(acceptedInputFrame.stick_rx);
-    analog[RightStickYAnalogIndex] = NativeAxisValue(acceptedInputFrame.stick_ry);
+    // 统一在当前输入状态写入完成后注入模拟摇杆轴。
+    InjectAcceptedGamepadAxes(state);
 }
 
 // 让游戏显示的图例和实际一致
@@ -1116,6 +1156,7 @@ bool InitializeMmIoHooks(const MmIoConfig& config)
     debugSliderStateInitialized = false;
     debugInjectedSliderInitialized = false;
     debugInjectedAxesInitialized = false;
+    debugLastInjectedAxesSimulated = false;
     debugSharedMemorySnapshotInitialized = false;
     debugLogicalActionInitialized = false;
     sliderModeResolver.Initialize(config.slider_mode);
@@ -1179,6 +1220,7 @@ void ShutdownMmIoHooks()
     debugSliderStateInitialized = false;
     debugInjectedSliderInitialized = false;
     debugInjectedAxesInitialized = false;
+    debugLastInjectedAxesSimulated = false;
     debugSharedMemorySnapshotInitialized = false;
     joyShockFrontend.Shutdown();
     sliderModeResolver.Reset();
