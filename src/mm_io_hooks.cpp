@@ -32,9 +32,10 @@ constexpr size_t LeftStickYAnalogIndex = 0x15;
 constexpr size_t RightStickXAnalogIndex = 0x16;
 constexpr size_t RightStickYAnalogIndex = 0x17;
 
-constexpr uint32_t DualSenseControllerType = 3;
 constexpr uint32_t DualShock4ControllerType = 2;
+constexpr uint32_t DualSenseControllerType = 3;
 constexpr uint32_t NintendoControllerType = 4;
+constexpr uint32_t HoriFTDXArcadeControllerType = 7;
 constexpr uint32_t NoControllerType = 11;
 
 using MergeSliderSensorButtons = int64_t(__fastcall*)(void* state, void* sensorState);
@@ -102,6 +103,7 @@ struct AcceptedInputFrame
     float stick_ry = 0.0f;
     bool axes_active = false;
     bool simulated_axes = false;
+    bool direct_slider_touch_active = false;
     uint32_t gamepad_slide = 0;
     mmio::Mode slider_mode = mmio::Mode::None;
     bool active = false;
@@ -553,18 +555,19 @@ void RefreshAcceptedInputFrame()
         HasMmIoSliderTouch(keyboardFrame.direct_touch_cells);
     const bool controllerDirectTouchActive =
         controllerInputActive && HasMmIoSliderTouch(controllerFrame.touch_cells);
-    const bool directTouchActive = externalArcadeActive || keyboardDirectTouchActive || controllerDirectTouchActive;
+    const bool directSliderTouchActive = externalArcadeActive || keyboardDirectTouchActive || controllerDirectTouchActive;
+    acceptedInputFrame.direct_slider_touch_active = directSliderTouchActive;
     const bool frontendDirectionActive =
         (keyboardActive && keyboardFrame.slider_direction != 0) ||
         (controllerInputActive && controllerFrame.gamepad_slide != 0);
     const uint32_t directionHeld = externalGamepadSlide |
         (keyboardActive ? keyboardFrame.slider_direction : 0) |
         (controllerInputActive ? controllerFrame.gamepad_slide : 0);
-    const bool preserveExternalGamepad = externalGamepadSlide != 0 && !directTouchActive && !frontendDirectionActive;
+    const bool preserveExternalGamepad = externalGamepadSlide != 0 && !directSliderTouchActive && !frontendDirectionActive;
     const MmIoSliderMode effectiveSliderMode = preserveExternalGamepad
         ? MmIoSliderMode::Joystick
         : sliderModeResolver.Resolve(
-            directTouchActive,
+            directSliderTouchActive,
             directionHeld);
     // ArcadeSlider 有触摸时，依然保留虚拟摇杆方向.
     if (directionHeld != 0 && (externalGamepadSlide != 0 || !controllerInputActive))
@@ -575,14 +578,14 @@ void RefreshAcceptedInputFrame()
 
     if (!debugSliderStateInitialized ||
         debugLastSliderMode != effectiveSliderMode ||
-        debugLastDirectTouch != directTouchActive ||
+        debugLastDirectTouch != directSliderTouchActive ||
         debugLastDirectionHeld != directionHeld)
     {
         DebugLog(
             "Slider decision: configured=%s effective=%s direct-touch=%s direction=0x%X keyboard-direction=0x%X gamepad-direction=0x%X controller-frame=0x%X takeover=%s output=%s",
             SliderModeName(mmIoConfig.slider_mode),
             SliderModeName(effectiveSliderMode),
-            directTouchActive ? "yes" : "no",
+            directSliderTouchActive ? "yes" : "no",
             directionHeld,
             keyboardActive ? keyboardFrame.slider_direction : 0,
             controllerInputActive ? controllerFrame.gamepad_slide : 0,
@@ -591,7 +594,7 @@ void RefreshAcceptedInputFrame()
             InputModeName(outputMode));
         debugSliderStateInitialized = true;
         debugLastSliderMode = effectiveSliderMode;
-        debugLastDirectTouch = directTouchActive;
+        debugLastDirectTouch = directSliderTouchActive;
         debugLastDirectionHeld = directionHeld;
     }
 
