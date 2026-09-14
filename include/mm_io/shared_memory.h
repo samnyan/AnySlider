@@ -40,6 +40,23 @@ namespace anyslider::mmio
     };
 
 
+    // Game-state values.
+    enum class GameState : uint32_t
+    {
+        Unknown = 0,
+        Loading = 1,
+        MainMenu = 2,
+        SongSelect = 3,
+        Results = 4, // Current version not support..
+        InGame = 5,
+        Title = 6,
+        Options = 7,
+        Customization = 8,
+        Gallery = 9,
+        Transition = 10,
+    };
+
+
     enum GameButton : uint32_t
     {
         Test = 0,       // Arcade TEST button.
@@ -159,10 +176,12 @@ namespace anyslider::mmio
         uint64_t started_ms;
         uint64_t heartbeat_ms;
 
-        // Maximum accepted age of an input snapshot, in milliseconds.
-        // SharedBuffer::hook advertises this to producers; they should publish
-        // before the lease expires.
+        // Maximum accepted age of an input snapshot. Should publish
+        // even no buttons were changed before the lease expires.
         uint64_t lease_ms;
+
+        // Current game state. Unknown when not supported
+        volatile uint32_t game_state;
     };
 
 
@@ -196,7 +215,7 @@ namespace anyslider::mmio
     // ABI layout checks.
     static_assert(sizeof(InputSnapshot) == 40);
     static_assert(sizeof(InputSlot) == 48);
-    static_assert(sizeof(Endpoint) == 32);
+    static_assert(sizeof(Endpoint) == 40);
 
     static_assert(offsetof(InputSnapshot, gamebtn) == 0);
     static_assert(offsetof(InputSnapshot, touch_mask) == 24);
@@ -205,6 +224,7 @@ namespace anyslider::mmio
     static_assert(offsetof(InputSlot, input) == 8);
     static_assert(offsetof(SharedBuffer, input_sequence) == 16);
     static_assert(offsetof(SharedBuffer, inputs) == 24);
-    static_assert(sizeof(SharedBuffer) == 6232);
+    static_assert(offsetof(Endpoint, game_state) == 32);
+    static_assert(sizeof(SharedBuffer) == 6248);
 
 }

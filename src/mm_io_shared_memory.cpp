@@ -40,6 +40,13 @@ void WriteAtomicUint64(uint64_t& value, uint64_t valueToWrite)
         static_cast<int64_t>(valueToWrite));
 }
 
+void WriteAtomicUint32(volatile uint32_t& value, uint32_t valueToWrite)
+{
+    InterlockedExchange(
+        reinterpret_cast<volatile LONG*>(&value),
+        static_cast<LONG>(valueToWrite));
+}
+
 bool HasAnyGameButton(const uint64_t (&gamebtn)[mmio::kGameButtonWordCount])
 {
     for (uint32_t word = 0; word < mmio::kGameButtonWordCount; ++word)
@@ -208,14 +215,30 @@ bool MmIoConsumer::Initialize(
     endpoint.started_ms = nowMs;
     WriteAtomicUint64(endpoint.heartbeat_ms, nowMs);
     WriteAtomicUint64(endpoint.lease_ms, leaseMs);
+    WriteAtomicUint32(endpoint.game_state, static_cast<uint32_t>(mmio::GameState::Unknown));
     ResetButtonState();
     return true;
 }
 
 void MmIoConsumer::Shutdown()
 {
+    PublishGameState(mmio::GameState::Unknown);
     shared_memory_.Close();
     ResetButtonState();
+}
+
+void MmIoConsumer::PublishGameState(mmio::GameState state)
+{
+    auto* buffer = shared_memory_.Get();
+    if (!buffer)
+        return;
+
+    WriteAtomicUint32(buffer->hook.game_state, static_cast<uint32_t>(state));
+}
+
+bool MmIoConsumer::IsOpen() const
+{
+    return shared_memory_.IsOpen();
 }
 
 void MmIoConsumer::ResetButtonState()
@@ -385,6 +408,7 @@ bool MmIoPublisher::Initialize(std::wstring_view name, uint32_t capabilities)
     endpoint.protocol_minor = mmio::kAbiMinor;
     endpoint.started_ms = nowMs;
     WriteAtomicUint64(endpoint.heartbeat_ms, nowMs);
+    WriteAtomicUint32(endpoint.game_state, static_cast<uint32_t>(mmio::GameState::Unknown));
 
     // A new producer session never exposes snapshots from the previous owner.
     InterlockedExchange64(&buffer->input_sequence, 0);

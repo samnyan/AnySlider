@@ -4,6 +4,7 @@
 
 #include "Dependencies/Signature.h"
 #include "anyslider_log.h"
+#include "mm_game_state.h"
 #include "mm_io_keyboard.h"
 #include "mm_io_joyshock.h"
 #include "mm_io_raw_input.h"
@@ -1235,10 +1236,14 @@ bool InitializeMmIoHooks(const MmIoConfig& config)
         return false;
     }
 
+    if (!InitializeMmGameState(mmIoConsumer))
+        Log("Native game-state reader is unavailable; state will remain Unknown.");
+
     if (!InstallDetours())
     {
         joyShockFrontend.Shutdown();
         sliderModeResolver.Reset();
+        ShutdownMmGameState();
         mmIoConsumer.Shutdown();
         return false;
     }
@@ -1260,6 +1265,7 @@ bool InitializeMmIoHooks(const MmIoConfig& config)
 
 void ShutdownMmIoHooks()
 {
+    ShutdownMmGameState();
     arcadeSliderActive.store(false, std::memory_order_relaxed);
     exclusiveControllerActive.store(false, std::memory_order_relaxed);
     virtualControllerType.store(DualSenseControllerType, std::memory_order_release);

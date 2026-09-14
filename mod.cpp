@@ -2,6 +2,7 @@
 
 #include "src/anyslider_log.h"
 #include "src/mm_io_config.h"
+#include "src/mm_game_state.h"
 #include "src/mm_io_hooks.h"
 #include "src/mm_io_window_hooks.h"
 #include "src/vid_pid_remap.h"
@@ -14,6 +15,7 @@ extern "C"
 __declspec(dllexport) void OnFrame(IDXGISwapChain*)
 {
     anyslider::UpdateMmIoWindowHooks();
+    anyslider::UpdateMmGameState();
 }
 
 // DIVA Mod Loader invokes this from WinMain after game globals are initialized.
