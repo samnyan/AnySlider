@@ -78,6 +78,12 @@ thread_local uint32_t debugLastDirectionHeld = 0;
 thread_local bool debugInjectedSliderInitialized = false;
 thread_local mmio::Mode debugLastInjectedMode = mmio::Mode::None;
 thread_local uint32_t debugLastInjectedValue = 0;
+thread_local bool debugInjectedAxesInitialized = false;
+thread_local int32_t debugLastInjectedAxes[4]{};
+thread_local bool debugSharedMemorySnapshotInitialized = false;
+thread_local uint32_t debugLastSharedMemoryMode = 0;
+thread_local uint32_t debugLastSharedMemoryTouchMask = 0;
+thread_local uint64_t debugLastSharedMemoryButtons[mmio::kGameButtonWordCount]{};
 thread_local bool debugLogicalActionInitialized = false;
 thread_local uint32_t debugLastLogicalAction = 0;
 thread_local uint32_t debugLastLogicalRawAction = 0;
@@ -401,6 +407,32 @@ void DebugLogSharedMemoryButtons(const MmIoConsumer::InputFrame& frame)
     }
 }
 
+void DebugLogSharedMemorySnapshot(const MmIoConsumer::InputFrame& frame)
+{
+    const mmio::InputSnapshot& snapshot = frame.snapshot;
+    const bool changed = !debugSharedMemorySnapshotInitialized ||
+        debugLastSharedMemoryMode != snapshot.mode ||
+        debugLastSharedMemoryTouchMask != snapshot.touch_mask ||
+        std::memcmp(debugLastSharedMemoryButtons, snapshot.gamebtn,
+            sizeof(snapshot.gamebtn)) != 0;
+    if (!changed)
+        return;
+
+    // Log source state only when it changes; timestamp-only publishes stay quiet.
+    DebugLog(
+        "Shared memory snapshot: mode=%s buttons=[%016llX,%016llX,%016llX] touch-mask=0x%08X",
+        SharedMemoryModeName(snapshot.mode),
+        static_cast<unsigned long long>(snapshot.gamebtn[0]),
+        static_cast<unsigned long long>(snapshot.gamebtn[1]),
+        static_cast<unsigned long long>(snapshot.gamebtn[2]),
+        snapshot.touch_mask);
+    debugSharedMemorySnapshotInitialized = true;
+    debugLastSharedMemoryMode = snapshot.mode;
+    debugLastSharedMemoryTouchMask = snapshot.touch_mask;
+    std::memcpy(debugLastSharedMemoryButtons, snapshot.gamebtn,
+        sizeof(debugLastSharedMemoryButtons));
+}
+
 void RefreshAcceptedInputFrame()
 {
     MmIoConsumer::InputFrame externalFrame{};
@@ -434,6 +466,7 @@ void RefreshAcceptedInputFrame()
     {
         if (IsDebugLoggingEnabled())
         {
+            DebugLogSharedMemorySnapshot(externalFrame);
             DebugLogSharedMemoryButtons(externalFrame);
         }
         MergeGameButtons(
@@ -1082,6 +1115,8 @@ bool InitializeMmIoHooks(const MmIoConfig& config)
     virtualControllerType.store(DualSenseControllerType, std::memory_order_release);
     debugSliderStateInitialized = false;
     debugInjectedSliderInitialized = false;
+    debugInjectedAxesInitialized = false;
+    debugSharedMemorySnapshotInitialized = false;
     debugLogicalActionInitialized = false;
     sliderModeResolver.Initialize(config.slider_mode);
     joyShockFrontend.Initialize(
@@ -1143,6 +1178,8 @@ void ShutdownMmIoHooks()
     acceptedInputFrame = {};
     debugSliderStateInitialized = false;
     debugInjectedSliderInitialized = false;
+    debugInjectedAxesInitialized = false;
+    debugSharedMemorySnapshotInitialized = false;
     joyShockFrontend.Shutdown();
     sliderModeResolver.Reset();
     mmIoConsumer.Shutdown();
