@@ -553,29 +553,22 @@ void RefreshAcceptedInputFrame()
         HasMmIoSliderTouch(keyboardFrame.direct_touch_cells);
     const bool controllerDirectTouchActive =
         controllerInputActive && HasMmIoSliderTouch(controllerFrame.touch_cells);
+    const bool directTouchActive = externalArcadeActive || keyboardDirectTouchActive || controllerDirectTouchActive;
     const bool frontendDirectionActive =
         (keyboardActive && keyboardFrame.slider_direction != 0) ||
         (controllerInputActive && controllerFrame.gamepad_slide != 0);
     const uint32_t directionHeld = externalGamepadSlide |
         (keyboardActive ? keyboardFrame.slider_direction : 0) |
         (controllerInputActive ? controllerFrame.gamepad_slide : 0);
-    // 有方向输入或者没有连接手柄时，都通过左右方向模拟摇杆输入
-    const bool directionOnlyInput = externalGamepadSlide != 0 || !controllerInputActive;
-    if (directionOnlyInput && directionHeld != 0)
-    {
-        // 键盘和 shared memory 只有方向，统一转换成完整的虚拟摇杆轴。
-        SetSimulatedGamepadAxes(acceptedInputFrame, directionHeld);
-    }
-    const bool directTouchActive = externalArcadeActive ||
-        keyboardDirectTouchActive || controllerDirectTouchActive;
-    const bool preserveExternalGamepad =
-        externalGamepadSlide != 0 && !keyboardDirectTouchActive &&
-        !controllerDirectTouchActive && !frontendDirectionActive;
+    const bool preserveExternalGamepad = externalGamepadSlide != 0 && !directTouchActive && !frontendDirectionActive;
     const MmIoSliderMode effectiveSliderMode = preserveExternalGamepad
         ? MmIoSliderMode::Joystick
         : sliderModeResolver.Resolve(
             directTouchActive,
             directionHeld);
+    // ArcadeSlider 有触摸时，依然保留虚拟摇杆方向.
+    if (directionHeld != 0 && (externalGamepadSlide != 0 || !controllerInputActive))
+        SetSimulatedGamepadAxes(acceptedInputFrame, directionHeld);
     const mmio::Mode outputMode = effectiveSliderMode == MmIoSliderMode::Arcade
         ? mmio::Mode::ArcadeSlider
         : directionHeld != 0 ? mmio::Mode::GamepadDualStick : mmio::Mode::None;

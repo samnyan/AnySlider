@@ -88,9 +88,7 @@ uint32_t GetMmIoSliderDirection(bool left, bool right, uint32_t leftBit, uint32_
 
 uint32_t GetExternalSliderDirection(const mmio::InputSnapshot& snapshot)
 {
-    if (snapshot.mode != static_cast<uint32_t>(mmio::Mode::GamepadDualStick))
-        return 0;
-
+    // 目前允许在Arcade模式下也接受摇杆输入了。
     uint32_t result = 0;
     if (mmio::IsGameButtonDown(snapshot.gamebtn, mmio::Stick1Left))
         result |= MmIoSlideLeft1;
