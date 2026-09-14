@@ -65,8 +65,8 @@ namespace anyslider::mmio
         L3 = 16,
         R3 = 17,
 
-        Sw1 = 18,
-        Sw2 = 19,
+        Sw1 = 18, // ArcadeController MenuLeftAction
+        Sw2 = 19, // ArcadeController MenuRightAction
 
         Stick1Up = 24,
         Stick1Down = 25,

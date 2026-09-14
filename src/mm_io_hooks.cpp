@@ -31,6 +31,8 @@ constexpr size_t LeftStickXAnalogIndex = 0x14;
 constexpr size_t LeftStickYAnalogIndex = 0x15;
 constexpr size_t RightStickXAnalogIndex = 0x16;
 constexpr size_t RightStickYAnalogIndex = 0x17;
+// Use how many cell at two side of ther slider to act as Left Right action
+constexpr size_t ArcadeSliderSwitchCellCount = 4;
 
 constexpr uint32_t DualShock4ControllerType = 2;
 constexpr uint32_t DualSenseControllerType = 3;
@@ -141,6 +143,7 @@ struct ButtonEdgeTracker
 ButtonEdgeTracker keyboardButtonEdges;
 ButtonEdgeTracker mergedProviderEdges;
 ButtonEdgeTracker gamepadDirectionEdges;
+ButtonEdgeTracker arcadeSliderSwitchEdges;
 
 void MergeGameButtons(
     uint64_t (&destination)[mmio::kGameButtonWordCount],
@@ -150,6 +153,51 @@ void MergeGameButtons(
     {
         destination[word] |= source[word];
     }
+}
+
+bool HasTouchInRange(
+    const uint8_t (&touchCells)[mmio::kTouchCellCount],
+    size_t begin,
+    size_t end)
+{
+    for (size_t cell = begin; cell < end; ++cell)
+    {
+        if (touchCells[cell] != 0)
+            return true;
+    }
+    return false;
+}
+
+void ApplyArcadeSliderSwitches(AcceptedInputFrame& frame)
+{
+    const bool leftSwitch = HasTouchInRange(
+        frame.touch_cells, 0, ArcadeSliderSwitchCellCount);
+    const bool rightSwitch = HasTouchInRange(
+        frame.touch_cells,
+        mmio::kTouchCellCount - ArcadeSliderSwitchCellCount,
+        mmio::kTouchCellCount);
+    uint64_t switchHeld[mmio::kGameButtonWordCount]{};
+
+    // Action 18/19 是街机控制器模式下的菜单左右
+    mmio::SetGameButton(switchHeld, mmio::Sw1, leftSwitch);
+    mmio::SetGameButton(switchHeld, mmio::Sw2, rightSwitch);
+
+    uint64_t switchTapped[mmio::kGameButtonWordCount]{};
+    uint64_t switchReleased[mmio::kGameButtonWordCount]{};
+    uint64_t switchDown[mmio::kGameButtonWordCount]{};
+    // 计算变动状态
+    arcadeSliderSwitchEdges.Apply(switchHeld, switchTapped, switchReleased, switchDown);
+    MergeGameButtons(frame.gamebtn_tapped, switchTapped);
+    MergeGameButtons(frame.gamebtn_released, switchReleased);
+    MergeGameButtons(frame.gamebtn_down, switchDown);
+    // Do not release a switch while another input provider still holds it.
+    for (uint32_t word = 0; word < mmio::kGameButtonWordCount; ++word)
+        frame.gamebtn_released[word] &= ~frame.gamebtn_down[word];
+    frame.active = frame.active || leftSwitch || rightSwitch ||
+        mmio::IsGameButtonDown(switchTapped, mmio::Sw1) ||
+        mmio::IsGameButtonDown(switchTapped, mmio::Sw2) ||
+        mmio::IsGameButtonDown(switchReleased, mmio::Sw1) ||
+        mmio::IsGameButtonDown(switchReleased, mmio::Sw2);
 }
 
 float SimulatedAxisValue(uint32_t direction, uint32_t negative, uint32_t positive)
@@ -651,6 +699,8 @@ void RefreshAcceptedInputFrame()
         MergeGameButtons(acceptedInputFrame.gamebtn_released, directionReleased);
         MergeGameButtons(acceptedInputFrame.gamebtn_down, directionDown);
     }
+    // 用左右两端的触摸当作菜单左右的action.
+    ApplyArcadeSliderSwitches(acceptedInputFrame);
     if (effectiveSliderMode == MmIoSliderMode::Arcade)
     {
         gamepadDirectionEdges.Reset();
@@ -1155,6 +1205,7 @@ bool InitializeMmIoHooks(const MmIoConfig& config)
     debugLastInjectedAxesSimulated = false;
     debugSharedMemorySnapshotInitialized = false;
     debugLogicalActionInitialized = false;
+    arcadeSliderSwitchEdges.Reset();
     sliderModeResolver.Initialize(config.slider_mode);
     joyShockFrontend.Initialize(
         config.gamepad,
@@ -1218,6 +1269,7 @@ void ShutdownMmIoHooks()
     debugInjectedAxesInitialized = false;
     debugLastInjectedAxesSimulated = false;
     debugSharedMemorySnapshotInitialized = false;
+    arcadeSliderSwitchEdges.Reset();
     joyShockFrontend.Shutdown();
     sliderModeResolver.Reset();
     mmIoConsumer.Shutdown();
