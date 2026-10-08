@@ -65,6 +65,7 @@ MmIoConsumer mmIoConsumer;
 MmIoKeyboardMouseFrontend keyboardFrontend;
 MmIoJoyShockFrontend joyShockFrontend;
 MmIoIo3Frontend io3Frontend;
+MmIoArcadeSliderFrontend arcadeSliderFrontend;
 MmIoSliderModeResolver sliderModeResolver;
 std::atomic_bool arcadeSliderActive = false;
 std::atomic_bool exclusiveControllerActive = false;
@@ -617,7 +618,9 @@ void RefreshAcceptedInputFrame()
         HasMmIoSliderTouch(keyboardFrame.direct_touch_cells);
     const bool controllerDirectTouchActive =
         controllerInputActive && HasMmIoSliderTouch(controllerFrame.touch_cells);
-    const bool directSliderTouchActive = externalArcadeActive || keyboardDirectTouchActive || controllerDirectTouchActive;
+    const auto arcadeSliderFrame = arcadeSliderFrontend.Consume();
+    const bool cabinetTouchActive = HasMmIoSliderTouch(arcadeSliderFrame.touch_cells);
+    const bool directSliderTouchActive = externalArcadeActive || keyboardDirectTouchActive || controllerDirectTouchActive || cabinetTouchActive;
     acceptedInputFrame.direct_slider_touch_active = directSliderTouchActive;
     const bool frontendDirectionActive =
         (keyboardActive && keyboardFrame.slider_direction != 0) ||
@@ -625,6 +628,7 @@ void RefreshAcceptedInputFrame()
     const uint32_t directionHeld = externalGamepadSlide |
         (keyboardActive ? keyboardFrame.slider_direction : 0) |
         (controllerInputActive ? controllerFrame.gamepad_slide : 0);
+    acceptedInputFrame.active = acceptedInputFrame.active || arcadeSliderFrame.connected;
     const bool preserveExternalGamepad = externalGamepadSlide != 0 && !directSliderTouchActive && !frontendDirectionActive;
     const MmIoSliderMode effectiveSliderMode = preserveExternalGamepad
         ? MmIoSliderMode::Joystick
@@ -683,6 +687,7 @@ void RefreshAcceptedInputFrame()
                 acceptedInputFrame.touch_cells,
                 controllerFrame.arcade_touch_cells);
         }
+        MergeTouchCells(acceptedInputFrame.touch_cells, arcadeSliderFrame.touch_cells);
         acceptedInputFrame.slider_mode = mmio::Mode::ArcadeSlider;
         acceptedInputFrame.gamepad_slide = 0;
         acceptedInputFrame.active = acceptedInputFrame.active ||
@@ -1261,6 +1266,7 @@ bool InitializeMmIoHooks(const MmIoConfig& config)
         return false;
     }
 
+    arcadeSliderFrontend.Initialize(config.arcade_slider);
     io3Frontend.Initialize(config.io3);
     Log("IO3 backend %s (AMEX native driver)", config.io3.enabled ? "enabled" : "disabled");
     Log("MMIO backend ready: mapping=%ls lease=%llu ms exclusive=%s keyboard-mouse=%s mouse-slider=%s gamepad=%s selected-device-hook=%s directinput-poll-hooks=%s binding-fallback-hook=%s action-query-hook=%s arcade-query-hook=%s",
@@ -1291,6 +1297,7 @@ void ShutdownMmIoHooks()
     debugLastInjectedAxesSimulated = false;
     debugSharedMemorySnapshotInitialized = false;
     arcadeSliderSwitchEdges.Reset();
+    arcadeSliderFrontend.Shutdown();
     io3Frontend.Shutdown();
     joyShockFrontend.Shutdown();
     sliderModeResolver.Reset();

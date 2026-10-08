@@ -2,6 +2,7 @@
 
 #include "mm_io_keyboard.h"
 #include "mm_io_io3.h"
+#include "mm_io_arcade_slider.h"
 #include "mm_io_slider.h"
 
 #include <cstdint>
@@ -32,6 +33,7 @@ struct MmIoConfig
     MmIoMouseSliderConfig mouse_slider;
     MmIoGamepadConfig gamepad;
     MmIoIo3Config io3;
+    MmIoArcadeSliderConfig arcade_slider;
     std::wstring shared_memory_name = L"Local\\MMIO_SHARED_BUFFER";
 };
 

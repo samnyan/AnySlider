@@ -361,6 +361,9 @@ bool LoadMmIoConfig(MmIoConfig& config)
         LoadKeyboardBindings(document, config.keyboard_bindings);
         LoadMouseSliderConfig(document, config);
         LoadGamepadConfig(document, config);
+        config.arcade_slider.enabled = document["io_arcade_slider_backend"].value_or(false);
+        config.arcade_slider.port = document["io_arcade_slider_port"].value_or(std::string("COM11"));
+        config.arcade_slider.assert_dtr_rts = document["io_arcade_slider_dtr_rts"].value_or(true);
         config.io3.enabled = document["io_io3_backend"].value_or(false);
         config.io3.poll_interval_ms = document["io_io3_poll_interval_ms"].value_or<uint32_t>(4);
         config.io3.timeout_ms = document["io_io3_timeout_ms"].value_or<uint32_t>(1000);

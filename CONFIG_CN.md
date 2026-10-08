@@ -77,3 +77,15 @@ io_io3_backend = true
 io_io3_poll_interval_ms = 4
 io_io3_timeout_ms = 1000
 ```
+
+## 街机滑条串口输入
+
+需要 837-15275 触摸滑条及其串口连接。
+
+```toml
+io_enabled = true
+io_arcade_slider_backend = true
+io_arcade_slider_port = "COM11"
+# 部分USB转串口需要发送DTR-RTS才能开始通讯，如连接主板原生串口出现问题可以尝试关闭
+io_arcade_slider_dtr_rts = true
+```

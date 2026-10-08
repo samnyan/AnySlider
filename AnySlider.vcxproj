@@ -101,6 +101,7 @@
     <ClInclude Include="pch.h" />
     <ClInclude Include="include\mm_io\shared_memory.h" />
     <ClInclude Include="src\anyslider_log.h" />
+    <ClInclude Include="src\mm_io_arcade_slider.h" />
     <ClInclude Include="src\mm_io_io3.h" />
     <ClInclude Include="src\mm_io_jvs.h" />
     <ClInclude Include="src\mm_io_config.h" />
@@ -117,6 +118,8 @@
   <ItemGroup>
     <ClCompile Include="dllmain.cpp" />
     <ClCompile Include="mod.cpp" />
+    <ClCompile Include="src\mm_io_arcade_slider.cpp"><PrecompiledHeader>NotUsing</PrecompiledHeader></ClCompile>
+    <ClCompile Include="src\mm_io_slider_protocol.cpp"><PrecompiledHeader>NotUsing</PrecompiledHeader></ClCompile>
     <ClCompile Include="src\mm_io_io3.cpp"><PrecompiledHeader>NotUsing</PrecompiledHeader></ClCompile>
     <ClCompile Include="src\mm_io_jvs.cpp"><PrecompiledHeader>NotUsing</PrecompiledHeader></ClCompile>
     <ClCompile Include="src\mm_io_config.cpp" />

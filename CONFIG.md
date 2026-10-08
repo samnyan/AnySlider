@@ -77,3 +77,16 @@ io_io3_backend = true
 io_io3_poll_interval_ms = 4
 io_io3_timeout_ms = 1000
 ```
+
+## Arcade Slider Serial Input
+
+Requires an 837-15275 touch slider and its serial connection.
+
+```toml
+io_enabled = true
+io_arcade_slider_backend = true
+io_arcade_slider_port = "COM11"
+# Some USB-to-serial adapters require DTR/RTS assertion to communicate.
+# If a motherboard-native serial port has connection issues, try disabling this.
+io_arcade_slider_dtr_rts = true
+```

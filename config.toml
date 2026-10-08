@@ -64,6 +64,12 @@ io_io3_backend = false
 io_io3_poll_interval_ms = 4
 io_io3_timeout_ms = 1000
 
+# Arcade touch slider serial input.
+io_arcade_slider_backend = false
+io_arcade_slider_port = "COM11"
+# 部分USB转串口需要发送DTR-RTS才能开始通讯，如连接主板原生串口出现问题可以尝试关闭
+io_arcade_slider_dtr_rts = true
+
 # ============================
 # Keyboard&Mouse IO
 # ============================
