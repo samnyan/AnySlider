@@ -1,6 +1,7 @@
 #pragma once
 
 #include "mm_io_keyboard.h"
+#include "mm_io_io3.h"
 #include "mm_io_slider.h"
 
 #include <cstdint>
@@ -30,6 +31,7 @@ struct MmIoConfig
     MmIoKeyboardBindings keyboard_bindings;
     MmIoMouseSliderConfig mouse_slider;
     MmIoGamepadConfig gamepad;
+    MmIoIo3Config io3;
     std::wstring shared_memory_name = L"Local\\MMIO_SHARED_BUFFER";
 };
 

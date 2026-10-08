@@ -66,3 +66,14 @@ io_key_slider_1_right = ["E"]
 io_key_slider_2_left = ["U"]
 io_key_slider_2_right = ["O"]
 ```
+
+## IO3 / AMEX 街机按钮
+
+需要 Windows 厂商 AMEX 驱动、837-15280 AMEX 与 837-14572 IO3。
+
+```toml
+io_enabled = true
+io_io3_backend = true
+io_io3_poll_interval_ms = 4
+io_io3_timeout_ms = 1000
+```

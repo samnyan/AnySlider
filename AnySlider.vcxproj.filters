@@ -27,6 +27,8 @@
     <ClInclude Include="src\anyslider_log.h">
       <Filter>头文件</Filter>
     </ClInclude>
+    <ClInclude Include="src\mm_io_io3.h"><Filter>Header Files</Filter></ClInclude>
+    <ClInclude Include="src\mm_io_jvs.h"><Filter>Header Files</Filter></ClInclude>
     <ClInclude Include="src\mm_io_config.h">
       <Filter>头文件</Filter>
     </ClInclude>
@@ -68,6 +70,8 @@
     <ClCompile Include="mod.cpp">
       <Filter>源文件</Filter>
     </ClCompile>
+    <ClCompile Include="src\mm_io_io3.cpp"><Filter>Source Files</Filter></ClCompile>
+    <ClCompile Include="src\mm_io_jvs.cpp"><Filter>Source Files</Filter></ClCompile>
     <ClCompile Include="src\mm_io_config.cpp">
       <Filter>源文件</Filter>
     </ClCompile>

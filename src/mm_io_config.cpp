@@ -361,6 +361,19 @@ bool LoadMmIoConfig(MmIoConfig& config)
         LoadKeyboardBindings(document, config.keyboard_bindings);
         LoadMouseSliderConfig(document, config);
         LoadGamepadConfig(document, config);
+        config.io3.enabled = document["io_io3_backend"].value_or(false);
+        config.io3.poll_interval_ms = document["io_io3_poll_interval_ms"].value_or<uint32_t>(4);
+        config.io3.timeout_ms = document["io_io3_timeout_ms"].value_or<uint32_t>(1000);
+        if (config.io3.poll_interval_ms < 1 || config.io3.poll_interval_ms > 100)
+        {
+            Log("Invalid io_io3_poll_interval_ms; using 4.");
+            config.io3.poll_interval_ms = 4;
+        }
+        if (config.io3.timeout_ms < 10 || config.io3.timeout_ms > 10000)
+        {
+            Log("Invalid io_io3_timeout_ms; using 1000.");
+            config.io3.timeout_ms = 1000;
+        }
 
         const std::string mappingName = document["io_shared_memory"]
             .value_or(std::string("Local\\MMIO_SHARED_BUFFER"));

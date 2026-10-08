@@ -57,6 +57,14 @@ io_slider_mode = "arcade"
 io_arcade_slider_emu_cells_per_second = 32.0
 
 # ============================
+# IO3 / AMEX backend
+# ============================
+# Read cabinet buttons through the installed AMEX JVS driver.
+io_io3_backend = false
+io_io3_poll_interval_ms = 4
+io_io3_timeout_ms = 1000
+
+# ============================
 # Keyboard&Mouse IO
 # ============================
 

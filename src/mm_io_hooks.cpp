@@ -64,6 +64,7 @@ MmIoConfig mmIoConfig;
 MmIoConsumer mmIoConsumer;
 MmIoKeyboardMouseFrontend keyboardFrontend;
 MmIoJoyShockFrontend joyShockFrontend;
+MmIoIo3Frontend io3Frontend;
 MmIoSliderModeResolver sliderModeResolver;
 std::atomic_bool arcadeSliderActive = false;
 std::atomic_bool exclusiveControllerActive = false;
@@ -570,6 +571,18 @@ void RefreshAcceptedInputFrame()
         acceptedInputFrame.stick_ry = controllerFrame.stick_ry;
         acceptedInputFrame.axes_active = true;
         acceptedInputFrame.active = true;
+    }
+
+    const auto io3Frame = io3Frontend.Consume();
+    MergeGameButtons(providerHeld, io3Frame.gamebtn_down);
+    MergeGameButtons(acceptedInputFrame.gamebtn_tapped, io3Frame.gamebtn_tapped);
+    MergeGameButtons(acceptedInputFrame.gamebtn_released, io3Frame.gamebtn_released);
+    acceptedInputFrame.active = acceptedInputFrame.active || io3Frame.connected;
+    for (uint32_t word = 0; word < mmio::kGameButtonWordCount; ++word)
+    {
+        // 断连后的最后一帧释放边沿仍需要送入现有的多来源合并逻辑。
+        acceptedInputFrame.active = acceptedInputFrame.active ||
+            io3Frame.gamebtn_tapped[word] != 0 || io3Frame.gamebtn_released[word] != 0;
     }
 
     uint64_t providerTapped[mmio::kGameButtonWordCount]{};
@@ -1248,6 +1261,8 @@ bool InitializeMmIoHooks(const MmIoConfig& config)
         return false;
     }
 
+    io3Frontend.Initialize(config.io3);
+    Log("IO3 backend %s (AMEX native driver)", config.io3.enabled ? "enabled" : "disabled");
     Log("MMIO backend ready: mapping=%ls lease=%llu ms exclusive=%s keyboard-mouse=%s mouse-slider=%s gamepad=%s selected-device-hook=%s directinput-poll-hooks=%s binding-fallback-hook=%s action-query-hook=%s arcade-query-hook=%s",
         config.shared_memory_name.c_str(),
         config.max_input_lease_ms,
@@ -1276,6 +1291,7 @@ void ShutdownMmIoHooks()
     debugLastInjectedAxesSimulated = false;
     debugSharedMemorySnapshotInitialized = false;
     arcadeSliderSwitchEdges.Reset();
+    io3Frontend.Shutdown();
     joyShockFrontend.Shutdown();
     sliderModeResolver.Reset();
     mmIoConsumer.Shutdown();
