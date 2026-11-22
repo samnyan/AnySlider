@@ -15,22 +15,23 @@
 //   3. Commit the slot by setting InputSlot::sequence.
 //   4. Publish it by updating SharedBuffer::input_sequence.
 //
-// Input sequence is 1, 2, 3... Output uses an odd/even commit sequence.
+// sequence is 1, 2, 3...
 
 namespace anyslider::mmio
 {
     inline constexpr wchar_t kSharedMemoryName[] = L"Local\\MMIO_SHARED_BUFFER";
+    inline constexpr wchar_t kLedNotifyEventName[] = L"Local\\MMIO_LED_OUTPUT_NOTIFY_EVENT";
 
     inline constexpr uint32_t kMagic = 0x4F494D4D; // "MMIO"
     inline constexpr uint16_t kAbiMajor = 3;
-    inline constexpr uint16_t kAbiMinor = 0;
+    inline constexpr uint16_t kAbiMinor = 1;
 
     inline constexpr uint32_t kTouchCellCount = 32;
     inline constexpr uint32_t kGameButtonWordCount = 3;
     inline constexpr uint32_t kGameButtonCount = kGameButtonWordCount * 64;
 
     inline constexpr uint32_t kInputCapacity = 128;
-
+    inline constexpr uint32_t kOutputCapacity = 4;
 
     enum class Mode : uint32_t
     {
@@ -77,10 +78,10 @@ namespace anyslider::mmio
         R1 = 12,
         L2 = 13,
         R2 = 14,
+        L3 = 15,
+        R3 = 16,
 
-        Select = 15,
-        L3 = 16,
-        R3 = 17,
+        Select = 17,
 
         Sw1 = 18, // ArcadeController MenuLeftAction
         Sw2 = 19, // ArcadeController MenuRightAction
@@ -185,18 +186,18 @@ namespace anyslider::mmio
     };
 
 
-    enum class Io3Led : uint32_t
+    enum Io3Led : uint32_t
     {
-        Triangle = 1u << 3,
-        Cross = 1u << 4,
-        Square = 1u << 6,
-        Circle = 1u << 7,
-        LeftRed = 1u << 8,
-        LeftGreen = 1u << 9,
-        LeftBlue = 1u << 10,
-        RightRed = 1u << 11,
-        RightGreen = 1u << 12,
-        RightBlue = 1u << 13,
+        Io3Led_Triangle = 1u << 3,
+        Io3Led_Square = 1u << 4,
+        Io3Led_Cross = 1u << 6,
+        Io3Led_Circle = 1u << 7,
+        Io3Led_LeftRed = 1u << 8,
+        Io3Led_LeftGreen = 1u << 9,
+        Io3Led_LeftBlue = 1u << 10,
+        Io3Led_RightRed = 1u << 11,
+        Io3Led_RightGreen = 1u << 12,
+        Io3Led_RightBlue = 1u << 13,
     };
 
     struct alignas(8) LedOutput
@@ -217,6 +218,7 @@ namespace anyslider::mmio
         uint32_t capabilities;
 
         // Latest completely published snapshot.
+        // Sequence 0: no valid input.
         // Sequence starts at 1 and increases normally.
         volatile int64_t input_sequence;
 
@@ -225,17 +227,24 @@ namespace anyslider::mmio
         Endpoint producer;
         Endpoint hook;
 
-        // Single hook-side writer. 0 unavailable, odd writing, even committed.
-        // Unlike input_sequence, output_sequence advances by 2 per snapshot.
+        // Latest completely published Led data.
+        // Sequence 0: no valid output.
+        // Sequence starts at 1 and increases normally.
         volatile int64_t output_sequence;
-        LedOutput output;
+
+        LedOutput output[kOutputCapacity];
     };
 
 
     constexpr uint32_t InputSlotIndex(int64_t sequence)
     {
         return static_cast<uint32_t>(
-            (static_cast<uint64_t>(sequence) - 1) % kInputCapacity);
+            static_cast<uint64_t>(sequence) % kInputCapacity);
+    }
+    constexpr uint32_t OutputSlotIndex(int64_t sequence)
+    {
+        return static_cast<uint32_t>(
+            static_cast<uint64_t>(sequence) % kOutputCapacity);
     }
 
 
@@ -259,6 +268,6 @@ namespace anyslider::mmio
     static_assert(offsetof(LedOutput, reserved) == 109);
     static_assert(offsetof(SharedBuffer, output_sequence) == 6248);
     static_assert(offsetof(SharedBuffer, output) == 6256);
-    static_assert(sizeof(SharedBuffer) == 6368);
+    static_assert(sizeof(SharedBuffer) == 6704);
 
 }

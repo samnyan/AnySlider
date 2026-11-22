@@ -96,7 +96,6 @@ bool TryReadInputSlot(
         return false;
 
     std::memcpy(&result, &slot.input, sizeof(result));
-    MemoryBarrier();
 
     // 再检查一次读回的序列，确保在读的时候不会刚好在写入这个slot
     return ReadSequence(&slot.sequence) == expectedSequence;
@@ -278,121 +277,117 @@ bool MmIoConsumer::ReadFrame(InputFrame& frame, uint64_t maxLeaseMs)
         overflow_logged_ = false;
 
         // 把之前hold的按钮全部release
-        if (HasAnyGameButton(accepted_gamebtn_down_))
-        {
-            CopyGameButtons(frame.gamebtn_released, accepted_gamebtn_down_);
-            ClearGameButtons(accepted_gamebtn_down_);
-            return true;
-        }
-
-        // 下一轮再读取
-        return false;
+        goto no_input_release_held;
     }
 
-    const int64_t latestSequence = ReadSequence(&buffer->input_sequence);
+    int64_t latestSequence;
+    latestSequence = ReadSequence(&buffer->input_sequence);
     if (latestSequence <= 0)
     {
         // 无任何输入，同样把之前hold的按钮全部release
-        const bool hadHeldButtons = HasAnyGameButton(accepted_gamebtn_down_);
-        if (hadHeldButtons)
-            CopyGameButtons(frame.gamebtn_released, accepted_gamebtn_down_);
-        ClearGameButtons(accepted_gamebtn_down_);
         last_input_sequence_ = 0;
-        return hadHeldButtons;
+        goto no_input_release_held;
     }
 
-    mmio::InputSnapshot latestSnapshot{};
+    mmio::InputSnapshot latestSnapshot;
     if (!TryReadInputSlot(*buffer, latestSequence, latestSnapshot))
         return false;
 
-    // 检查输入
-    const bool validMode = latestSnapshot.mode <= static_cast<uint32_t>(mmio::Mode::GamepadDualStick);
-    const bool validTime = maxLeaseMs != 0 && latestSnapshot.timestamp_ms <= nowMs && nowMs - latestSnapshot.timestamp_ms <= maxLeaseMs;
-    const bool inactive = latestSnapshot.mode == static_cast<uint32_t>(mmio::Mode::None);
-
-    if (!validMode || !validTime || inactive)
     {
-        const bool hadHeldButtons = HasAnyGameButton(accepted_gamebtn_down_);
-        if (hadHeldButtons)
-            CopyGameButtons(frame.gamebtn_released, accepted_gamebtn_down_);
-        ClearGameButtons(accepted_gamebtn_down_);
-        last_input_sequence_ = latestSequence;
-        return hadHeldButtons;
+        // 检查输入
+        const bool validMode = latestSnapshot.mode <= static_cast<uint32_t>(mmio::Mode::GamepadDualStick);
+        const bool validTime = maxLeaseMs != 0 && latestSnapshot.timestamp_ms <= nowMs && nowMs - latestSnapshot.timestamp_ms <= maxLeaseMs;
+        const bool inactive = latestSnapshot.mode == static_cast<uint32_t>(mmio::Mode::None);
+
+        if (!validMode || !validTime || inactive)
+        {
+            last_input_sequence_ = latestSequence;
+            goto no_input_release_held;
+        }
     }
 
     // 防止seq回退，有可能是外部输入程序重启了
     if (latestSequence < last_input_sequence_)
     {
-        const bool hadHeldButtons = HasAnyGameButton(accepted_gamebtn_down_);
-        if (hadHeldButtons)
-            CopyGameButtons(frame.gamebtn_released, accepted_gamebtn_down_);
-        ClearGameButtons(accepted_gamebtn_down_);
         last_input_sequence_ = 0;
-        return hadHeldButtons;
+        goto no_input_release_held;
     }
-
-    frame.snapshot = latestSnapshot;
-    frame.source_active = true;
-    uint64_t latestButtons[mmio::kGameButtonWordCount]{};
-    GetSnapshotGameButtons(latestSnapshot, latestButtons);
-
-    const bool overflow = latestSequence - last_input_sequence_ > mmio::kInputCapacity;
-    // 距离上次读取超过了array容量，有一部分的snapshot应该已经被覆盖了
-    if (overflow)
     {
-        if (!overflow_logged_)
-        {
-            Log("MMIO snapshot ring overflow; resynchronizing to latest input.");
-            overflow_logged_ = true;
-        }
-        // 直接用上次和这次的差分
-        SetNetButtonDiff(frame, accepted_gamebtn_down_, latestButtons);
-        CopyGameButtons(accepted_gamebtn_down_, latestButtons);
-        last_input_sequence_ = latestSequence;
-        return true;
-    }
+        frame.snapshot = latestSnapshot;
+        frame.source_active = true;
+        uint64_t latestButtons[mmio::kGameButtonWordCount]{};
+        GetSnapshotGameButtons(latestSnapshot, latestButtons);
 
-    uint64_t localDown[mmio::kGameButtonWordCount]{};
-    CopyGameButtons(localDown, accepted_gamebtn_down_);
-    uint64_t tapped[mmio::kGameButtonWordCount]{};
-    uint64_t released[mmio::kGameButtonWordCount]{};
-    // 读取中间所有的snapshot，不会遗漏两次查询之间的按键变化
-    for (int64_t sequence = last_input_sequence_ + 1; sequence <= latestSequence; ++sequence)
-    {
-        mmio::InputSnapshot snapshot{};
-        if (!TryReadInputSlot(*buffer, sequence, snapshot))
+        const bool overflow = latestSequence - last_input_sequence_ >= mmio::kInputCapacity;
+        // 距离上次读取超过了array容量，有一部分的snapshot应该已经被覆盖了 (剛好等於時則有生產者正在寫入新的的風險)
+        // 也有可能是外部輸入比遊戲更早啟動
+        if (overflow)
         {
-            // 读到的不是需要的sequence，说明在追赶的时候中间已经被写入了。
             if (!overflow_logged_)
             {
-                Log("MMIO snapshot ring changed while reading; resynchronizing to latest input.");
+                Log("MMIO snapshot ring overflow; resynchronizing to latest input.");
                 overflow_logged_ = true;
             }
+            // 直接用上次和这次的差分
             SetNetButtonDiff(frame, accepted_gamebtn_down_, latestButtons);
             CopyGameButtons(accepted_gamebtn_down_, latestButtons);
             last_input_sequence_ = latestSequence;
             return true;
         }
 
-        uint64_t currentDown[mmio::kGameButtonWordCount]{};
-        GetSnapshotGameButtons(snapshot, currentDown);
-        for (uint32_t word = 0; word < mmio::kGameButtonWordCount; ++word)
+        uint64_t localDown[mmio::kGameButtonWordCount]{};
+        CopyGameButtons(localDown, accepted_gamebtn_down_);
+        uint64_t tapped[mmio::kGameButtonWordCount]{};
+        uint64_t released[mmio::kGameButtonWordCount]{};
+        // 读取中间所有的snapshot，不会遗漏两次查询之间的按键变化
+        for (int64_t sequence = last_input_sequence_ + 1; sequence <= latestSequence; ++sequence)
         {
-            // 可以保证每次poll之间不会丢失按下和释放的状态，但如果按了多次就没法保留了。
-            tapped[word] |= currentDown[word] & ~localDown[word];
-            released[word] |= localDown[word] & ~currentDown[word];
-            localDown[word] = currentDown[word];
-        }
-    }
+            mmio::InputSnapshot snapshot{};
+            if (!TryReadInputSlot(*buffer, sequence, snapshot)) [[unlikely]]
+            {
+                // 读到的不是需要的sequence，说明在追赶的时候中间已经被写入了。
+                if (!overflow_logged_)
+                {
+                    Log("MMIO snapshot ring changed while reading; resynchronizing to latest input.");
+                    overflow_logged_ = true;
+                }
+                SetNetButtonDiff(frame, accepted_gamebtn_down_, latestButtons);
+                CopyGameButtons(accepted_gamebtn_down_, latestButtons);
+                last_input_sequence_ = latestSequence;
+                return true;
+            }
 
-    // 最后提交
-    CopyGameButtons(frame.gamebtn_tapped, tapped);
-    CopyGameButtons(frame.gamebtn_released, released);
-    CopyGameButtons(frame.gamebtn_down, localDown);
-    CopyGameButtons(accepted_gamebtn_down_, localDown);
-    last_input_sequence_ = latestSequence;
-    overflow_logged_ = false;
-    return true;
+            uint64_t currentDown[mmio::kGameButtonWordCount]{};
+            GetSnapshotGameButtons(snapshot, currentDown);
+            if (tapped[0] & ~currentDown[0] || tapped[1] & ~currentDown[1] || tapped[2] & ~currentDown[2]) {
+                // 在這裡停下來，不讀到最後，下次再繼續
+                // 把按下和釋放序列化到不同frame，以避免丟失瞬間的按下和釋放
+                latestSequence = sequence - 1;
+                frame.snapshot = snapshot;
+                break;
+            }
+            for (uint32_t word = 0; word < mmio::kGameButtonWordCount; ++word)
+            {
+                tapped[word] |= currentDown[word] & ~localDown[word];
+                released[word] |= localDown[word] & ~currentDown[word];
+                localDown[word] = currentDown[word];
+            }
+        }
+
+        // 最后提交
+        CopyGameButtons(frame.gamebtn_tapped, tapped);
+        CopyGameButtons(frame.gamebtn_released, released);
+        CopyGameButtons(frame.gamebtn_down, localDown);
+        CopyGameButtons(accepted_gamebtn_down_, localDown);
+        last_input_sequence_ = latestSequence;
+        overflow_logged_ = false;
+        return true;
+    }
+no_input_release_held:
+    const bool hadHeldButtons = HasAnyGameButton(accepted_gamebtn_down_);
+    CopyGameButtons(frame.gamebtn_released, accepted_gamebtn_down_);
+    ClearGameButtons(accepted_gamebtn_down_);
+    return hadHeldButtons;
 }
 
 bool MmIoPublisher::Initialize(std::wstring_view name, uint32_t capabilities)
@@ -430,14 +425,11 @@ bool MmIoPublisher::Publish(const mmio::InputSnapshot& snapshot)
 
     const int64_t nextSequence = ReadSequence(&buffer->input_sequence) + 1;
     auto& slot = buffer->inputs[mmio::InputSlotIndex(nextSequence)];
-
-    // Hide the slot before overwriting it so a wrapping reader rejects it.
-    InterlockedExchange64(&slot.sequence, 0);
-    MemoryBarrier();
+    
     std::memcpy(&slot.input, &snapshot, sizeof(snapshot));
-    MemoryBarrier();
+    
     InterlockedExchange64(&slot.sequence, nextSequence);
-    MemoryBarrier();
+    
     InterlockedExchange64(&buffer->input_sequence, nextSequence);
     WriteAtomicUint64(buffer->producer.heartbeat_ms, MmIoNowMilliseconds());
     return true;

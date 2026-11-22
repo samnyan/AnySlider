@@ -310,9 +310,9 @@ MmIoKeyboardFrame MmIoBoundInputFrontend::Poll(uint16_t io3Down, uint16_t io3Pre
         { &bindings_.r1, mmio::R1, "R1" },
         { &bindings_.l2, mmio::L2, "L2" },
         { &bindings_.r2, mmio::R2, "R2" },
-        { &bindings_.select, mmio::Select, "Select" },
         { &bindings_.l3, mmio::L3, "L3" },
         { &bindings_.r3, mmio::R3, "R3" },
+        { &bindings_.select, mmio::Select, "Select" },
     };
 
     snapshot.mode = static_cast<uint32_t>(mmio::Mode::ArcadeSlider);

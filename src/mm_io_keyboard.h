@@ -42,9 +42,9 @@ struct MmIoInputBindings
     MmIoKeyBinding r1;
     MmIoKeyBinding l2;
     MmIoKeyBinding r2;
-    MmIoKeyBinding select;
     MmIoKeyBinding l3;
     MmIoKeyBinding r3;
+    MmIoKeyBinding select;
     MmIoKeyBinding slider_1_left;
     MmIoKeyBinding slider_1_right;
     MmIoKeyBinding slider_2_left;
